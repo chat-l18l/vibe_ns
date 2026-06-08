@@ -195,26 +195,6 @@ const game_ops_t feature_messageboard = {
 };
 
 /* -------------------------------------------------------------------------
- * Chat
- * ---------------------------------------------------------------------- */
-
-static void *
-chat_create (telnet_session_t *s)
-{
-    return coming_soon (s, "Groepschat",
-                        "Chat in real-time met andere ingelogde gebruikers");
-}
-
-const game_ops_t feature_chat = {
-    .name        = "Groepschat",
-    .description = "Chat in real-time met andere ingelogde gebruikers",
-    .menu_key    = 'g',
-    .create      = chat_create,
-    .handle_key  = stub_handle_key,
-    .destroy     = stub_destroy,
-};
-
-/* -------------------------------------------------------------------------
  * Help
  * ---------------------------------------------------------------------- */
 

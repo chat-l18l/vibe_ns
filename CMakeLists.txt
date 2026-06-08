@@ -31,6 +31,8 @@ add_library(netserver_core STATIC
     src/ui/menu.c
     src/ui/bbs.c
     src/features/stubs.c
+    src/features/chat/room.c
+    src/features/chat/chat.c
 )
 target_include_directories(netserver_core PUBLIC src)
 target_link_libraries(netserver_core PUBLIC pthread)

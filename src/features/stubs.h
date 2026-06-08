@@ -14,7 +14,6 @@ extern const game_ops_t feature_whosonline;      /* [W] */
 extern const game_ops_t feature_profile;         /* [P] */
 extern const game_ops_t feature_alias;           /* [N] */
 extern const game_ops_t feature_messageboard;    /* [M] */
-extern const game_ops_t feature_chat;            /* [G] */
 extern const game_ops_t feature_help;            /* [H] */
 
 #endif /* FEATURES_STUBS_H */

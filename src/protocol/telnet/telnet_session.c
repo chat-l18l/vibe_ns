@@ -3,6 +3,7 @@
 #include "../../protocol/protocol.h"
 #include "../../ui/bbs.h"
 #include "../../features/stubs.h"
+#include "../../features/chat/chat.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -339,6 +340,7 @@ setup_main_menu (telnet_session_t *s)
     menu_add (m, 'w', "Who's Online",   &feature_whosonline);
     menu_add (m, 'p', "Profiel",        &feature_profile);
     menu_add (m, 'n', "Alias instellen",&feature_alias);
+    menu_add (m, 'g', "Chat rooms",      &chat_feature);
     menu_add (m, 'm', "Message board",  &feature_messageboard);
     menu_add (m, 'h', "Help",           &feature_help);
 
@@ -368,6 +370,9 @@ telnet_create_session (int sockfd, const struct sockaddr_storage *peer)
     s->term_rows         = 24;
     s->pending_selection = -1;
     s->online_count      = &s_online_count;
+    s->notify_rfd        = -1;
+    s->notify_wfd        = -1;
+    s->on_notify         = NULL;
 
     fsm_init        (&s->fsm, &telnet_fsm_def);
     iac_parser_init (&s->iac);
@@ -391,6 +396,11 @@ telnet_run_session (void *session)
         fd_set rfds;
         FD_ZERO (&rfds);
         FD_SET (s->sockfd, &rfds);
+        int nfds = s->sockfd;
+        if (s->notify_rfd >= 0) {
+            FD_SET (s->notify_rfd, &rfds);
+            if (s->notify_rfd > nfds) nfds = s->notify_rfd;
+        }
 
         struct timeval tv;
         time_t now  = time (NULL);
@@ -404,7 +414,7 @@ telnet_run_session (void *session)
             tv.tv_usec = 0;
         }
 
-        int nready = select (s->sockfd + 1, &rfds, NULL, NULL, &tv);
+        int nready = select (nfds + 1, &rfds, NULL, NULL, &tv);
 
         if (nready < 0) {
             if (errno == EINTR) continue;
@@ -421,6 +431,14 @@ telnet_run_session (void *session)
             }
             continue;
         }
+
+        if (s->notify_rfd >= 0 && FD_ISSET (s->notify_rfd, &rfds)) {
+            uint8_t dummy;
+            read (s->notify_rfd, &dummy, 1);  /* drain one byte */
+            if (s->on_notify) s->on_notify (s);
+        }
+
+        if (!FD_ISSET (s->sockfd, &rfds)) continue;
 
         ssize_t n = recv (s->sockfd, s->recv_buf, sizeof (s->recv_buf), 0);
         if (n <= 0) {

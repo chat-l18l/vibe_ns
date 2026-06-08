@@ -43,6 +43,11 @@ struct telnet_session {
     volatile bool          shutdown_requested;
 
     const atomic_uint     *online_count;        /* points to module-level s_online_count */
+
+    char                   username[32];        /* set by chat feature, persists for session */
+    int                    notify_rfd;          /* pipe read end; -1 when unused */
+    int                    notify_wfd;          /* pipe write end; given to chat room */
+    void                 (*on_notify)(struct telnet_session *s);
 };
 
 typedef struct telnet_session telnet_session_t;
