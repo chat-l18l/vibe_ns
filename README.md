@@ -63,6 +63,68 @@ telnet localhost 2323
 
 ---
 
+## Install & deploy (systemd)
+
+Build a release binary and install it system-wide:
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+sudo cmake --install build --prefix /usr/local
+# → installs to /usr/local/bin/netserver
+```
+
+Copy the included service file and enable it:
+
+```bash
+sudo cp deploy/netserver.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable --now netserver
+```
+
+The service starts as root to bind port 23, then drops privileges to `nobody`
+automatically. It restarts on crash after 5 seconds and logs to journald.
+
+```bash
+# Follow logs
+journalctl -u netserver -f
+
+# To read all journal messages (not just your own session):
+sudo usermod -aG systemd-journal $USER
+# then log out and back in
+```
+
+**After a code update:**
+
+```bash
+cmake --build build
+sudo cmake --install build --prefix /usr/local
+sudo systemctl restart netserver
+```
+
+### Running on port 2323 (no root needed)
+
+For development, or if you don't want to run on the standard telnet port:
+
+```bash
+# Run directly, no sudo needed
+./build/netserver --port 2323
+
+# Or edit the service file before copying:
+ExecStart=/usr/local/bin/netserver --port 2323 --max-conn 2000
+# (omit --user since no privilege drop is needed for high ports)
+```
+
+Connect with:
+
+```bash
+telnet localhost 2323
+# or from another machine:
+telnet oetelx.nl 2323
+```
+
+---
+
 ## Project layout
 
 ```
