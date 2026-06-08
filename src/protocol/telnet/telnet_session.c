@@ -87,6 +87,11 @@ on_data (void *ctx, const uint8_t *buf, size_t len)
             fsm_dispatch (&s->fsm, TEV_GAME_OVER, s, NULL);
         }
 
+        if (s->quit_pending && !fsm_is_terminal (&s->fsm)) {
+            s->quit_pending = false;
+            fsm_dispatch (&s->fsm, TEV_DISCONNECT, s, NULL);
+        }
+
         if (s->pending_selection >= 0 && !fsm_is_terminal (&s->fsm))
             fsm_dispatch (&s->fsm, TEV_MENU_SELECT, s, &s->pending_selection);
     }
@@ -194,8 +199,10 @@ act_handle_menu_key (void *ctx, fsm_event_t ev, const void *data)
     assert (data != NULL);
 
     char key = *(const char *) data;
-    if (key == 'q' || key == 'Q' || key == 3)
-        return FSM_ACTION_ERROR;
+    if (key == 'q' || key == 'Q' || key == 3) {
+        s->quit_pending = true;
+        return FSM_ACTION_OK;
+    }
 
     int sel = menu_handle_key (&s->main_menu, key);
     if (sel >= 0)

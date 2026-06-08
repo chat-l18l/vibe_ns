@@ -39,6 +39,7 @@ struct telnet_session {
 
     int                    pending_selection;
     bool                   game_over_pending;   /* set in act_game_key, consumed in on_data */
+    bool                   quit_pending;        /* set in act_handle_menu_key, consumed in on_data */
     volatile bool          shutdown_requested;
 
     const atomic_uint     *online_count;        /* points to module-level s_online_count */
