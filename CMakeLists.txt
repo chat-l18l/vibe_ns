@@ -29,6 +29,8 @@ add_library(netserver_core STATIC
     src/protocol/telnet/telnet_session.c
     src/ui/ansi.c
     src/ui/menu.c
+    src/ui/bbs.c
+    src/features/stubs.c
 )
 target_include_directories(netserver_core PUBLIC src)
 target_link_libraries(netserver_core PUBLIC pthread)

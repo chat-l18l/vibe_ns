@@ -3,6 +3,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stdatomic.h>
 #include <sys/socket.h>
 
 #include "../../core/fsm.h"
@@ -37,12 +38,15 @@ struct telnet_session {
     uint8_t                nego_pending;
 
     int                    pending_selection;
+    bool                   game_over_pending;   /* set in act_game_key, consumed in on_data */
     volatile bool          shutdown_requested;
+
+    const atomic_uint     *online_count;        /* points to module-level s_online_count */
 };
 
 typedef struct telnet_session telnet_session_t;
 
-/* Called from game stubs to write output */
+/* Called from game/feature modules to write output to client */
 void telnet_session_send(telnet_session_t *session, const char *data, size_t len);
 
 /* Protocol vtable entry point */
