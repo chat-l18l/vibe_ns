@@ -1,0 +1,17 @@
+[Unit]
+Description=OETELX BBS — multi-protocol network game server
+Documentation=https://github.com/chat-l18l/vibe_ns
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/netserver --port 23 --user nobody --max-conn 2000
+Restart=on-failure
+RestartSec=5s
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netserver
+
+[Install]
+WantedBy=multi-user.target

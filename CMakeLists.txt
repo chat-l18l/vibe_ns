@@ -46,3 +46,5 @@ target_link_libraries(netserver
     game_chess
     game_backgammon
 )
+
+install(TARGETS netserver DESTINATION bin)
