@@ -30,11 +30,24 @@ static pthread_once_t s_once = PTHREAD_ONCE_INIT;
 
 static const char *s_room_names[] = { "general", "games", "random" };
 
+static char s_chat_dir[256];
+
 static void
 rooms_init_once (void)
 {
-    /* create data directory if needed */
-    mkdir (CHAT_DATA_DIR, 0755);
+    /* Pick the data directory. Under systemd, StateDirectory=netserver sets
+     * STATE_DIRECTORY=/var/lib/netserver (writable by the service user). For
+     * local/dev runs the env is unset, so fall back to ./data/chat. */
+    const char *state = getenv ("STATE_DIRECTORY");
+    if (state && state[0]) {
+        size_t n = strcspn (state, ":");   /* may be a colon-separated list */
+        if (n > sizeof (s_chat_dir) - 8) n = sizeof (s_chat_dir) - 8;
+        snprintf (s_chat_dir, sizeof (s_chat_dir), "%.*s/chat", (int) n, state);
+    } else {
+        mkdir ("data", 0755);
+        snprintf (s_chat_dir, sizeof (s_chat_dir), "%s", CHAT_DATA_DIR);
+    }
+    mkdir (s_chat_dir, 0755);
 
     s_room_count = (int) (sizeof (s_room_names) / sizeof (s_room_names[0]));
     for (int i = 0; i < s_room_count; i++) {
@@ -43,7 +56,7 @@ rooms_init_once (void)
         pthread_mutex_init (&r->lock, NULL);
         strncpy (r->pub.name, s_room_names[i], sizeof (r->pub.name) - 1);
         snprintf (r->pub.log_path, sizeof (r->pub.log_path),
-                  CHAT_DATA_DIR "/%s.log", s_room_names[i]);
+                  "%s/%s.log", s_chat_dir, s_room_names[i]);
         s_room_ptrs[i] = &r->pub;
     }
 }

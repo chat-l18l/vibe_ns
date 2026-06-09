@@ -6,6 +6,11 @@ Wants=network.target
 
 [Service]
 Type=simple
+# systemd creates /var/lib/netserver (root-owned by default). The app starts as
+# root to bind port 23, then drops to 'nobody', so make the state dir writable
+# by that user before launch.
+StateDirectory=netserver
+ExecStartPre=+/bin/chown nobody:nogroup /var/lib/netserver
 ExecStart=/usr/local/bin/netserver --port 23 --user nobody --max-conn 2000
 Restart=on-failure
 RestartSec=5s

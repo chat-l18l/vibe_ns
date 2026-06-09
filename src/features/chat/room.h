@@ -9,7 +9,7 @@
 
 typedef struct {
     char             name[32];
-    char             log_path[256];
+    char             log_path[512];
     int              sub_fds[CHAT_MAX_SUBSCRIBERS];
     int              sub_count;
     /* mutex is embedded; opaque to callers — use API only */
