@@ -141,6 +141,7 @@ render_room (chat_state_t *c)
 {
     uint16_t r = term_rows (c);
 
+    /* header + separator stream from row 1; cursor ends at row 3 */
     csendf (c,
         "\x1b[2J\x1b[H"
         "\x1b[1;36m  #%s\x1b[0m\r\n"
@@ -149,8 +150,11 @@ render_room (chat_state_t *c)
 
     char  hist[8192];
     off_t new_tail;
+    /* cap to available message rows so content never reaches footer */
+    int   avail = (int) r - 5;
+    int   want  = (avail > 0 && avail < CHAT_MSG_LINES) ? avail : CHAT_MSG_LINES;
     int   lines = chat_room_read_history (c->room, c->view_tail,
-                                          CHAT_MSG_LINES, hist, sizeof (hist),
+                                          want, hist, sizeof (hist),
                                           &new_tail);
     if (c->view_tail == 0)
         c->view_tail = new_tail;
@@ -158,18 +162,16 @@ render_room (chat_state_t *c)
     if (lines > 0)
         csend (c, hist, strlen (hist));
 
-    int pad = (int) r - 4 - lines;
-    for (int i = 0; i < pad; i++)
-        csend (c, "\r\n", 2);
-
-    csend (c,
-        "\x1b[2m  ───────────────────────────────────────\x1b[0m\r\n"
-        "  \x1b[2m>\x1b[0m \r\n"
-        "\x1b[2m  [Enter]schrijf  [p]ouder  [n]nieuwer  [q]verlaat  [Q]quit\x1b[0m\r\n",
-        strlen (
-        "\x1b[2m  ───────────────────────────────────────\x1b[0m\r\n"
-        "  \x1b[2m>\x1b[0m \r\n"
-        "\x1b[2m  [Enter]schrijf  [p]ouder  [n]nieuwer  [q]verlaat  [Q]quit\x1b[0m\r\n"));
+    /* footer: absolute positioning — no \r\n drift, no terminal scroll */
+    csendf (c,
+        "\x1b[%u;1H\x1b[2m  ─────────────────────────────────────────\x1b[0m",
+        (unsigned)(r - 2));
+    csendf (c,
+        "\x1b[%u;1H  > ",
+        (unsigned)(r - 1));
+    csendf (c,
+        "\x1b[%u;1H\x1b[2m  [Enter]schrijf  [p]ouder  [n]nieuwer  [q]verlaat  [Q]quit\x1b[0m",
+        (unsigned) r);
 }
 
 /* -------------------------------------------------------------------------
@@ -233,23 +235,10 @@ chat_on_notify (telnet_session_t *s)
     if (!c || c->st == CHAT_ST_LOBBY || c->st == CHAT_ST_USERNAME) return;
     if (!c->at_live) return;
 
-    char  buf[4096];
-    off_t new_tail;
-    ssize_t n = chat_room_read_since (c->room, c->view_tail,
-                                      buf, sizeof (buf), &new_tail);
-    if (n <= 0) return;
-    c->view_tail = new_tail;
-
-    uint16_t r = term_rows (c);
-    /* position at last message line, scroll up, print new message */
-    csendf (c, "\x1b[%u;1H", (unsigned) (r - 3));
-    csend  (c, buf, (size_t) n);
-
-    /* restore compose or prompt line */
+    /* full redraw — simpler and correct; chat traffic is low enough */
+    render_room (c);
     if (c->st == CHAT_ST_COMPOSE)
         render_compose (c);
-    else
-        csendf (c, "\x1b[%u;1H\x1b[2K  \x1b[2m>\x1b[0m ", (unsigned) (r - 1));
 }
 
 /* -------------------------------------------------------------------------
@@ -303,7 +292,7 @@ handle_in_room (chat_state_t *c, char key)
     if (key == 'Q') { leave_room (c); return false; }
     if (key == 'q') { leave_room (c); return true;  }
 
-    if (key == '\r' || key == '\n' || key == 'i') {
+    if (key == '\r' || key == 'i') {
         c->st          = CHAT_ST_COMPOSE;
         c->compose_len = 0;
         c->compose[0]  = '\0';
