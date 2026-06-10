@@ -261,8 +261,7 @@ handle_username (chat_state_t *c, char key)
     if (key == '\r' || key == '\n') {
         if (c->username_len == 0) return true;
         c->username_buf[c->username_len] = '\0';
-        strncpy (c->s->username, c->username_buf, sizeof (c->s->username) - 1);
-        c->s->username[sizeof (c->s->username) - 1] = '\0';
+        snprintf (c->s->username, sizeof (c->s->username), "%s", c->username_buf);
         c->st = CHAT_ST_LOBBY;
         render_lobby (c);
         return true;

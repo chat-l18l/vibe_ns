@@ -54,14 +54,27 @@ rooms_init_once (void)
     }
     mkdir (s_chat_dir, 0755);
 
-    s_room_count = (int) (sizeof (s_room_names) / sizeof (s_room_names[0]));
-    for (int i = 0; i < s_room_count; i++) {
+    /* Fail loudly at init, not at the first post: a misconfigured service
+     * (wrong cwd, missing StateDirectory, privilege drop) shows up here. */
+    if (access (s_chat_dir, W_OK) != 0)
+        LOG_ERR ("chat: data dir '%s' not writable (%s) — posts WILL fail. "
+                 "Under systemd, the unit needs StateDirectory=netserver.",
+                 s_chat_dir, strerror (errno));
+    else
+        LOG_INFO ("chat: using data dir %s", s_chat_dir);
+
+    /* local compile-time bound so the optimizer can prove the
+     * s_room_names[] accesses stay in range */
+    const int count = (int) (sizeof (s_room_names) / sizeof (s_room_names[0]));
+    s_room_count = count;
+    for (int i = 0; i < count; i++) {
         room_t *r = &s_rooms[i];
         memset (r, 0, sizeof (*r));
         pthread_mutex_init (&r->lock, NULL);
         strncpy (r->pub.name, s_room_names[i], sizeof (r->pub.name) - 1);
+        /* bounded precisions: 255+1+31+4 < 512, provably no truncation */
         snprintf (r->pub.log_path, sizeof (r->pub.log_path),
-                  "%s/%s.log", s_chat_dir, s_room_names[i]);
+                  "%.255s/%.31s.log", s_chat_dir, s_room_names[i]);
         s_room_ptrs[i] = &r->pub;
     }
 }
