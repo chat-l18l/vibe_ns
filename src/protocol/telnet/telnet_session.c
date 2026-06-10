@@ -1,3 +1,8 @@
+/**
+ * @file telnet_session.c
+ * @brief Telnet session: event loop, FSM actions/table and menu wiring.
+ */
+
 #include "telnet_session.h"
 #include "../../core/log.h"
 #include "../../protocol/protocol.h"

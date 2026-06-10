@@ -1,3 +1,8 @@
+/**
+ * @file fsm.c
+ * @brief Table-driven FSM engine implementation. See fsm.h for the model.
+ */
+
 #include "fsm.h"
 #include "log.h"
 

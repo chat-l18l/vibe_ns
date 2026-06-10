@@ -1,3 +1,8 @@
+/**
+ * @file telnet_proto.c
+ * @brief IAC parser state machine and outgoing sequence builders.
+ */
+
 #include "telnet_proto.h"
 #include "../../core/log.h"
 

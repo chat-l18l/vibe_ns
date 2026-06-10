@@ -1,3 +1,8 @@
+/**
+ * @file stubs.c
+ * @brief "Coming soon" placeholder implementations of game_ops_t.
+ */
+
 #include "stubs.h"
 #include "../protocol/telnet/telnet_session.h"
 

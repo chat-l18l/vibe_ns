@@ -1,3 +1,8 @@
+/**
+ * @file bbs.c
+ * @brief BBS main screen renderer (logo, stats, two-column menu).
+ */
+
 #include "bbs.h"
 
 #include <stdio.h>

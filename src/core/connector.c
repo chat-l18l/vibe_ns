@@ -1,3 +1,8 @@
+/**
+ * @file connector.c
+ * @brief Bounded detached-thread spawner (semaphore slot accounting).
+ */
+
 #include "connector.h"
 #include "log.h"
 

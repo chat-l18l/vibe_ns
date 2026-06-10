@@ -1,3 +1,8 @@
+/**
+ * @file server.c
+ * @brief Accept loop, listener setup and signal handling.
+ */
+
 #include "server.h"
 #include "connection.h"
 #include "log.h"

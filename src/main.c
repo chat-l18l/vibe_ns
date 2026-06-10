@@ -1,3 +1,8 @@
+/**
+ * @file main.c
+ * @brief Entry point: parse args, bind listeners, drop privileges, run.
+ */
+
 #include <stdlib.h>
 
 #include "core/server.h"

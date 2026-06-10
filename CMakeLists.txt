@@ -50,3 +50,14 @@ target_link_libraries(netserver
 )
 
 install(TARGETS netserver DESTINATION bin)
+
+# API documentation: cmake --build build --target docs
+find_package(Doxygen QUIET)
+if(DOXYGEN_FOUND)
+    add_custom_target(docs
+        COMMAND Doxygen::doxygen ${CMAKE_SOURCE_DIR}/Doxyfile
+        WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+        COMMENT "Generating API documentation (docs/api/html)"
+        VERBATIM
+    )
+endif()

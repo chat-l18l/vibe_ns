@@ -1,0 +1,40 @@
+# Doxygen configuration for netserver (vibe_ns)
+# Run: doxygen Doxyfile   →  docs/api/html/index.html
+# Or:  cmake --build build --target docs
+
+PROJECT_NAME           = "netserver"
+PROJECT_BRIEF          = "OETELX BBS — multi-protocol network game server"
+PROJECT_NUMBER         = 0.1
+
+INPUT                  = src README.md
+RECURSIVE              = YES
+USE_MDFILE_AS_MAINPAGE = README.md
+
+OUTPUT_DIRECTORY       = docs/api
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+
+# C project settings
+OPTIMIZE_OUTPUT_FOR_C  = YES
+TYPEDEF_HIDES_STRUCT   = YES
+EXTRACT_ALL            = YES
+EXTRACT_STATIC         = YES
+SHOW_INCLUDE_FILES     = YES
+
+# Source browsing
+SOURCE_BROWSER         = YES
+REFERENCED_BY_RELATION = YES
+REFERENCES_RELATION    = YES
+
+# Diagrams (set HAVE_DOT = YES when graphviz is installed)
+HAVE_DOT               = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+INCLUDE_GRAPH          = YES
+INCLUDED_BY_GRAPH      = YES
+
+# Warnings — keep documentation honest
+QUIET                  = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = NO
+WARN_IF_DOC_ERROR      = YES

@@ -1,3 +1,8 @@
+/**
+ * @file backgammon.c
+ * @brief Backgammon placeholder — shows "not yet implemented" and returns.
+ */
+
 #include "../game.h"
 #include "../../core/log.h"
 #include "../../protocol/telnet/telnet_session.h"

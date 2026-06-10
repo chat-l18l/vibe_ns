@@ -1,3 +1,8 @@
+/**
+ * @file protocol.c
+ * @brief Registry of all linked protocol implementations.
+ */
+
 #include "protocol.h"
 #include "telnet/telnet_session.h"
 

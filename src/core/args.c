@@ -1,3 +1,8 @@
+/**
+ * @file args.c
+ * @brief argp-based command-line parsing with range validation.
+ */
+
 #include "args.h"
 #include "log.h"
 

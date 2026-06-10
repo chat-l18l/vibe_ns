@@ -1,3 +1,8 @@
+/**
+ * @file room.c
+ * @brief Room registry, append-only log storage and subscriber wake-up.
+ */
+
 #include "room.h"
 #include "../../core/log.h"
 

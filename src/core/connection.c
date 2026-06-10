@@ -1,3 +1,8 @@
+/**
+ * @file connection.c
+ * @brief Connection object lifecycle and the per-connection thread body.
+ */
+
 #include "connection.h"
 #include "server.h"
 #include "log.h"

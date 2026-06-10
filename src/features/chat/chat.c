@@ -1,3 +1,14 @@
+/**
+ * @file chat.c
+ * @brief Chat UI flow: username → lobby → room view → compose.
+ *
+ * Screen layout uses absolute cursor positioning for the footer rows
+ * (separator, prompt, key legend) so message-count drift can never
+ * scroll the terminal. Live updates arrive via the session notify pipe
+ * and trigger a full room redraw — simple and always correct at chat
+ * message rates.
+ */
+
 #include "chat.h"
 #include "room.h"
 #include "../../protocol/telnet/telnet_session.h"

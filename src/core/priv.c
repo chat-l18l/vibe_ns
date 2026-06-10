@@ -1,3 +1,8 @@
+/**
+ * @file priv.c
+ * @brief Privilege drop: initgroups → setgid → setuid, then verify.
+ */
+
 #include "priv.h"
 #include "log.h"
 

@@ -1,3 +1,8 @@
+/**
+ * @file menu.c
+ * @brief Generic menu renderer and key lookup.
+ */
+
 #include "menu.h"
 #include "../core/log.h"
 

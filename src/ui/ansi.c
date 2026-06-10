@@ -1,3 +1,8 @@
+/**
+ * @file ansi.c
+ * @brief ANSI escape sequence builders (snprintf wrappers).
+ */
+
 #include "ansi.h"
 #include "../core/log.h"
 
