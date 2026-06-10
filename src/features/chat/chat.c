@@ -209,13 +209,11 @@ enter_room (chat_state_t *c, chat_room_t *room)
     c->at_live   = true;
     c->st        = CHAT_ST_IN_ROOM;
 
-    int fds[2];
-    if (pipe (fds) == 0) {
-        c->s->notify_rfd = fds[0];
-        c->s->notify_wfd = fds[1];
-        c->s->on_notify  = chat_on_notify;
-        chat_room_subscribe (room, fds[1]);
-    }
+    /* The session owns its notify pipe; we only lend the write end to
+     * the room and hook on_notify for the duration of the visit. */
+    c->s->on_notify = chat_on_notify;
+    if (c->s->notify_wfd >= 0)
+        chat_room_subscribe (room, c->s->notify_wfd);
 
     render_room (c);
 }
@@ -228,8 +226,6 @@ leave_room (chat_state_t *c)
         c->room = NULL;
     }
     c->s->on_notify = NULL;
-    if (c->s->notify_rfd >= 0) { close (c->s->notify_rfd); c->s->notify_rfd = -1; }
-    if (c->s->notify_wfd >= 0) { close (c->s->notify_wfd); c->s->notify_wfd = -1; }
 
     c->st = CHAT_ST_LOBBY;
     render_lobby (c);
@@ -246,7 +242,10 @@ chat_on_notify (telnet_session_t *s)
     if (!c || c->st == CHAT_ST_LOBBY || c->st == CHAT_ST_USERNAME) return;
     if (!c->at_live) return;
 
-    /* full redraw — simpler and correct; chat traffic is low enough */
+    /* full redraw — simpler and correct; chat traffic is low enough.
+     * Reset view_tail so render_room reads up to the *new* end of file
+     * instead of the offset frozen at the previous render. */
+    c->view_tail = 0;
     render_room (c);
     if (c->st == CHAT_ST_COMPOSE)
         render_compose (c);
@@ -359,8 +358,11 @@ handle_compose (chat_state_t *c, char key)
         render_compose (c);
         return true;
     }
+    /* Printable ASCII only. Bytes 128–159 (C1, incl. 0x9B = single-byte
+     * CSI) would be replayed on every subscriber's terminal — a remote
+     * escape-sequence injection. Costs us accented chars; safe trade. */
     if (c->compose_len < (int) sizeof (c->compose) - 1 &&
-        (unsigned char) key >= 32 && key != 127) {
+        (unsigned char) key >= 32 && (unsigned char) key <= 126) {
         c->compose[c->compose_len++] = key;
         render_compose (c);
     }
@@ -411,9 +413,7 @@ chat_destroy (void *state)
     if (!c) return;
     if (c->room)
         chat_room_unsubscribe (c->room, c->s->notify_wfd);
-    c->s->on_notify = NULL;
-    if (c->s->notify_rfd >= 0) { close (c->s->notify_rfd); c->s->notify_rfd = -1; }
-    if (c->s->notify_wfd >= 0) { close (c->s->notify_wfd); c->s->notify_wfd = -1; }
+    c->s->on_notify = NULL;   /* pipe stays open — owned by the session */
     free (c);
 }
 

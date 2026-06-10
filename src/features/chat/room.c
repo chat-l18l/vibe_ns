@@ -152,6 +152,55 @@ chat_room_unsubscribe (chat_room_t *pub, int notify_wfd)
 }
 
 /* -------------------------------------------------------------------------
+ * Line formatting — shared by history and read_since
+ * ---------------------------------------------------------------------- */
+
+/**
+ * @brief Format one raw log line for display.
+ *
+ * Input:  "room:YYYY-MM-DDTHH:MM:SS:user:msg"
+ * Output: "[HH:MM] user: msg\r\n" with ANSI styling.
+ *
+ * The timestamp itself contains ':' characters, so the line cannot be
+ * split on ':' naively — the room ends at the first ':', the timestamp
+ * is the next 19 bytes exactly, then ":user:msg".
+ *
+ * @return Bytes written into @p out, or 0 if the line is malformed or
+ *         does not fit.
+ */
+static int
+format_line (const char *line, size_t line_len, char *out, size_t outsz)
+{
+    char copy[768];
+    size_t copy_len = line_len < sizeof (copy) - 1 ? line_len : sizeof (copy) - 1;
+    memcpy (copy, line, copy_len);
+    copy[copy_len] = '\0';
+
+    char *ts = strchr (copy, ':');
+    if (!ts) return 0;
+    *ts++ = '\0';                              /* copy = room name */
+
+    if (strlen (ts) < 21 || ts[19] != ':')     /* 19 = strlen(ISO-8601) */
+        return 0;
+    ts[19] = '\0';                             /* ts = timestamp */
+
+    char *user = ts + 20;
+    char *msg  = strchr (user, ':');
+    if (!msg) return 0;
+    *msg++ = '\0';
+
+    char hhmm[6];                              /* ts+11 = "HH:MM" */
+    strncpy (hhmm, ts + 11, 5);
+    hhmm[5] = '\0';
+
+    int n = snprintf (out, outsz,
+                      "\x1b[2m[%s]\x1b[0m \x1b[1m%s\x1b[0m: %s\r\n",
+                      hhmm, user, msg);
+    if (n < 0 || (size_t) n >= outsz) return 0;
+    return n;
+}
+
+/* -------------------------------------------------------------------------
  * History read — scan backwards for max_lines lines before before_off
  * ---------------------------------------------------------------------- */
 
@@ -238,36 +287,10 @@ chat_room_read_history (chat_room_t *pub, off_t before_off,
         size_t line_len = nl ? (size_t) (nl - line) : (size_t) (end - line);
         if (line_len == 0) { line++; continue; }
 
-        /* parse room:ts:user:msg — split on ':' */
-        char copy[768];
-        size_t copy_len = line_len < sizeof (copy) - 1 ? line_len : sizeof (copy) - 1;
-        memcpy (copy, line, copy_len);
-        copy[copy_len] = '\0';
-
-        char *f1 = copy;
-        char *f2 = strchr (f1, ':');         /* after room */
-        char *f3 = f2 ? strchr (f2 + 1, ':') : NULL;  /* after ts */
-        char *f4 = f3 ? strchr (f3 + 1, ':') : NULL;  /* after user */
-
-        if (f2 && f3 && f4) {
-            *f2 = *f3 = *f4 = '\0';
-            /* f1=room, f2+1=ts, f3+1=user, f4+1=msg */
-            const char *ts   = f2 + 1;
-            const char *user = f3 + 1;
-            const char *msg  = f4 + 1;
-            /* shorten ts to HH:MM (chars 11-15 of ISO-8601) */
-            const char *hhmm = (strlen (ts) >= 16) ? ts + 11 : ts;
-            char hhmm5[6];
-            strncpy (hhmm5, hhmm, 5);
-            hhmm5[5] = '\0';
-
-            int n = snprintf (buf + pos, bufsz - pos,
-                              "\x1b[2m[%s]\x1b[0m \x1b[1m%s\x1b[0m: %s\r\n",
-                              hhmm5, user, msg);
-            if (n > 0 && pos + (size_t) n < bufsz) {
-                pos += (size_t) n;
-                count++;
-            }
+        int n = format_line (line, line_len, buf + pos, bufsz - pos);
+        if (n > 0) {
+            pos += (size_t) n;
+            count++;
         }
 
         line = nl ? nl + 1 : end;
@@ -323,32 +346,9 @@ chat_room_read_since (chat_room_t *pub, off_t from_off,
         size_t line_len = nl ? (size_t) (nl - line) : (size_t) (end - line);
         if (line_len == 0) { line++; continue; }
 
-        char copy[768];
-        size_t copy_len = line_len < sizeof (copy) - 1 ? line_len : sizeof (copy) - 1;
-        memcpy (copy, line, copy_len);
-        copy[copy_len] = '\0';
-
-        char *f1 = copy;
-        char *f2 = strchr (f1, ':');
-        char *f3 = f2 ? strchr (f2 + 1, ':') : NULL;
-        char *f4 = f3 ? strchr (f3 + 1, ':') : NULL;
-
-        if (f2 && f3 && f4) {
-            *f2 = *f3 = *f4 = '\0';
-            const char *ts   = f2 + 1;
-            const char *user = f3 + 1;
-            const char *msg  = f4 + 1;
-            const char *hhmm = (strlen (ts) >= 16) ? ts + 11 : ts;
-            char hhmm5[6];
-            strncpy (hhmm5, hhmm, 5);
-            hhmm5[5] = '\0';
-
-            int n = snprintf (buf + pos, bufsz - pos,
-                              "\x1b[2m[%s]\x1b[0m \x1b[1m%s\x1b[0m: %s\r\n",
-                              hhmm5, user, msg);
-            if (n > 0 && pos + (size_t) n < bufsz)
-                pos += (size_t) n;
-        }
+        int n = format_line (line, line_len, buf + pos, bufsz - pos);
+        if (n > 0)
+            pos += (size_t) n;
 
         line = nl ? nl + 1 : end;
     }

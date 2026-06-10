@@ -14,8 +14,10 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+#include <poll.h>
+#include <pthread.h>
 #include <sys/socket.h>
-#include <sys/select.h>
 #include <sys/time.h>
 #include <time.h>
 #include <assert.h>
@@ -25,6 +27,55 @@
  * ---------------------------------------------------------------------- */
 
 static atomic_uint s_online_count;
+
+/* -------------------------------------------------------------------------
+ * Session registry — lets shutdown_all reach and wake every live session.
+ * Sessions register at loop start and unregister before closing their
+ * notify pipe, so shutdown_all never writes to a closed fd.
+ * ---------------------------------------------------------------------- */
+
+static pthread_mutex_t   s_sessions_lock = PTHREAD_MUTEX_INITIALIZER;
+static telnet_session_t *s_session_head;
+static bool              s_shutting_down;   /* guarded by s_sessions_lock */
+
+static void
+session_register (telnet_session_t *s)
+{
+    pthread_mutex_lock (&s_sessions_lock);
+    s->reg_next    = s_session_head;
+    s_session_head = s;
+    if (s_shutting_down)
+        s->shutdown_requested = true;
+    pthread_mutex_unlock (&s_sessions_lock);
+}
+
+static void
+session_unregister (telnet_session_t *s)
+{
+    pthread_mutex_lock (&s_sessions_lock);
+    for (telnet_session_t **pp = &s_session_head; *pp; pp = &(*pp)->reg_next) {
+        if (*pp == s) {
+            *pp = s->reg_next;
+            break;
+        }
+    }
+    pthread_mutex_unlock (&s_sessions_lock);
+}
+
+static void
+telnet_shutdown_all (void)
+{
+    pthread_mutex_lock (&s_sessions_lock);
+    s_shutting_down = true;
+    for (telnet_session_t *s = s_session_head; s; s = s->reg_next) {
+        s->shutdown_requested = true;
+        if (s->notify_wfd >= 0) {
+            uint8_t one = 1;
+            (void) !write (s->notify_wfd, &one, 1);   /* wake poll() */
+        }
+    }
+    pthread_mutex_unlock (&s_sessions_lock);
+}
 
 /* -------------------------------------------------------------------------
  * Send helpers
@@ -98,8 +149,11 @@ on_data (void *ctx, const uint8_t *buf, size_t len)
             fsm_dispatch (&s->fsm, TEV_DISCONNECT, s, NULL);
         }
 
-        if (s->pending_selection >= 0 && !fsm_is_terminal (&s->fsm))
-            fsm_dispatch (&s->fsm, TEV_MENU_SELECT, s, &s->pending_selection);
+        if (s->pending_selection >= 0 && !fsm_is_terminal (&s->fsm)) {
+            int sel = s->pending_selection;
+            s->pending_selection = -1;   /* consume — once per selection */
+            fsm_dispatch (&s->fsm, TEV_MENU_SELECT, s, &sel);
+        }
     }
 }
 
@@ -375,9 +429,20 @@ telnet_create_session (int sockfd, const struct sockaddr_storage *peer)
     s->term_rows         = 24;
     s->pending_selection = -1;
     s->online_count      = &s_online_count;
-    s->notify_rfd        = -1;
-    s->notify_wfd        = -1;
     s->on_notify         = NULL;
+
+    /* Self-pipe: publishers (chat) and shutdown_all write here to wake the
+     * session loop. Non-blocking on both ends, so a full pipe can never
+     * stall a publisher — a lost wake-up is fine, redraws read full state. */
+    int fds[2];
+    if (pipe2 (fds, O_NONBLOCK) == 0) {
+        s->notify_rfd = fds[0];
+        s->notify_wfd = fds[1];
+    } else {
+        LOG_WARN ("telnet_create_session: pipe2 failed: %m — no live notify");
+        s->notify_rfd = -1;
+        s->notify_wfd = -1;
+    }
 
     fsm_init        (&s->fsm, &telnet_fsm_def);
     iac_parser_init (&s->iac);
@@ -392,34 +457,34 @@ telnet_run_session (void *session)
     telnet_session_t *s = (telnet_session_t *) session;
 
     atomic_fetch_add (&s_online_count, 1u);
+    session_register (s);
 
     fsm_dispatch (&s->fsm, TEV_CONNECTED, s, NULL);
 
     time_t nego_deadline = time (NULL) + TELNET_NEGO_TIMEOUT;
 
+    /* poll(), not select(): connection fds can exceed FD_SETSIZE (1024)
+     * under load, and FD_SET past that limit corrupts memory. */
     while (!fsm_is_terminal (&s->fsm) && !s->shutdown_requested) {
-        fd_set rfds;
-        FD_ZERO (&rfds);
-        FD_SET (s->sockfd, &rfds);
-        int nfds = s->sockfd;
+        struct pollfd pfds[2];
+        nfds_t        npfd = 0;
+
+        pfds[npfd].fd     = s->sockfd;
+        pfds[npfd].events = POLLIN;
+        npfd++;
         if (s->notify_rfd >= 0) {
-            FD_SET (s->notify_rfd, &rfds);
-            if (s->notify_rfd > nfds) nfds = s->notify_rfd;
+            pfds[npfd].fd     = s->notify_rfd;
+            pfds[npfd].events = POLLIN;
+            npfd++;
         }
 
-        struct timeval tv;
         time_t now  = time (NULL);
         long   wait = (long) (nego_deadline - now);
+        int    timeout_ms = (s->nego_pending > 0 && wait > 0)
+                          ? (int) wait * 1000
+                          : TELNET_IDLE_TIMEOUT * 1000;
 
-        if (s->nego_pending > 0 && wait > 0) {
-            tv.tv_sec  = wait;
-            tv.tv_usec = 0;
-        } else {
-            tv.tv_sec  = TELNET_IDLE_TIMEOUT;
-            tv.tv_usec = 0;
-        }
-
-        int nready = select (nfds + 1, &rfds, NULL, NULL, &tv);
+        int nready = poll (pfds, npfd, timeout_ms);
 
         if (nready < 0) {
             if (errno == EINTR) continue;
@@ -437,13 +502,19 @@ telnet_run_session (void *session)
             continue;
         }
 
-        if (s->notify_rfd >= 0 && FD_ISSET (s->notify_rfd, &rfds)) {
-            uint8_t dummy;
-            read (s->notify_rfd, &dummy, 1);  /* drain one byte */
+        if (npfd > 1 && (pfds[1].revents & POLLIN)) {
+            /* Drain all pending wake-ups, then notify once — coalesces a
+             * burst of posts into a single redraw. */
+            uint8_t drain[64];
+            while (read (s->notify_rfd, drain, sizeof (drain)) > 0)
+                ;
+            if (s->shutdown_requested)
+                break;
             if (s->on_notify) s->on_notify (s);
         }
 
-        if (!FD_ISSET (s->sockfd, &rfds)) continue;
+        if (!(pfds[0].revents & (POLLIN | POLLHUP | POLLERR)))
+            continue;
 
         ssize_t n = recv (s->sockfd, s->recv_buf, sizeof (s->recv_buf), 0);
         if (n <= 0) {
@@ -459,6 +530,12 @@ telnet_run_session (void *session)
         s->game_state  = NULL;
         s->active_game = NULL;
     }
+
+    /* Unregister before closing the pipe: after this returns,
+     * telnet_shutdown_all can no longer see this session. */
+    session_unregister (s);
+    if (s->notify_rfd >= 0) close (s->notify_rfd);
+    if (s->notify_wfd >= 0) close (s->notify_wfd);
 
     atomic_fetch_sub (&s_online_count, 1u);
     close (s->sockfd);
@@ -478,4 +555,5 @@ const protocol_ops_t telnet_protocol = {
     .create_session   = telnet_create_session,
     .run_session      = telnet_run_session,
     .request_shutdown = telnet_request_shutdown,
+    .shutdown_all     = telnet_shutdown_all,
 };

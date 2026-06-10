@@ -36,6 +36,13 @@ struct protocol_ops {
 
     /** @brief Ask a running session to terminate (async, thread-safe). */
     void         (*request_shutdown)(void *session);
+
+    /**
+     * @brief Ask all running sessions of this protocol to terminate and
+     *        wake their event loops. Called once at server shutdown,
+     *        before waiting for connection threads. May be NULL.
+     */
+    void         (*shutdown_all)(void);
 };
 
 /** NULL-terminated list of all linked protocols. */

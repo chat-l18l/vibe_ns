@@ -10,11 +10,13 @@
  * notify pipe, feeds received bytes through the IAC parser, and drives
  * the session FSM with the decoded events.
  *
- * The notify pipe is the cross-thread wake-up mechanism: a feature
- * (currently chat) creates a pipe, registers the write end with a
- * publisher, and sets @c on_notify. When another thread writes a byte,
- * this session's select() wakes and @c on_notify runs *on the session
- * thread* — features never touch a session from foreign threads.
+ * The notify pipe is the cross-thread wake-up mechanism: every session
+ * owns a non-blocking self-pipe, created at session start. A feature
+ * (currently chat) hands the write end to a publisher and sets
+ * @c on_notify; when another thread writes a byte, this session's
+ * poll() wakes and @c on_notify runs *on the session thread* — features
+ * never touch a session from foreign threads. The same pipe wakes the
+ * loop for server shutdown (see telnet_protocol.shutdown_all).
  */
 
 #include <stdint.h>
@@ -72,10 +74,13 @@ struct telnet_session {
     /** @name Feature extensions */
     /**@{*/
     char                   username[32];  /**< Chosen in chat; persists for session. */
-    int                    notify_rfd;    /**< Notify pipe read end; -1 unused. */
-    int                    notify_wfd;    /**< Notify pipe write end (publisher side). */
+    int                    notify_rfd;    /**< Self-pipe read end (O_NONBLOCK); -1 if pipe2 failed. */
+    int                    notify_wfd;    /**< Self-pipe write end; handed to publishers. */
     void                 (*on_notify)(struct telnet_session *s); /**< Wake handler. */
     /**@}*/
+
+    /** Intrusive link for the module-level session registry (internal). */
+    struct telnet_session *reg_next;
 };
 
 typedef struct telnet_session telnet_session_t;

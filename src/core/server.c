@@ -192,6 +192,14 @@ void
 server_destroy (server_t *srv)
 {
     assert (srv != NULL);
+
+    /* Tell every live session to stop and wake its event loop; otherwise
+     * connector_destroy would wait out idle timeouts (up to 300 s). */
+    for (uint32_t i = 0; i < srv->listener_count; i++) {
+        if (srv->listeners[i].proto->shutdown_all)
+            srv->listeners[i].proto->shutdown_all ();
+    }
+
     connector_destroy (&srv->connector);
     for (uint32_t i = 0; i < srv->listener_count; i++)
         close (srv->listeners[i].listen_fd);

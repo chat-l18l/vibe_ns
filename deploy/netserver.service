@@ -12,6 +12,9 @@ Type=simple
 StateDirectory=netserver
 ExecStartPre=+/bin/chown nobody:nogroup /var/lib/netserver
 ExecStart=/usr/local/bin/netserver --port 23 --user nobody --max-conn 2000
+# Each connection uses 3 fds (socket + notify pipe pair); the default
+# soft limit of 1024 would cap us at ~340 connections.
+LimitNOFILE=65536
 Restart=on-failure
 RestartSec=5s
 StandardOutput=journal
