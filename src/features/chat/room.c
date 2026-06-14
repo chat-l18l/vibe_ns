@@ -81,6 +81,45 @@ chat_room_by_id (long id)
 }
 
 /* -------------------------------------------------------------------------
+ * Input sanitization
+ *
+ * Bodies and usernames enter from two protocols (telnet and HTTP). Both
+ * are stored once and later rendered onto *telnet* terminals, so anything
+ * outside printable ASCII could carry an escape-sequence injection. We
+ * normalize at this single choke point — the service post — rather than
+ * trusting each protocol's input path.
+ * ---------------------------------------------------------------------- */
+
+/* Copy src→dst keeping only printable ASCII (0x20–0x7E); others become
+ * '?'. Returns the number of kept characters (excluding NUL). */
+static size_t
+sanitize_text (const char *src, char *dst, size_t dstsz)
+{
+    size_t n = 0;
+    for (; src[n] && n < dstsz - 1; n++) {
+        unsigned char ch = (unsigned char) src[n];
+        dst[n] = (ch >= 0x20 && ch <= 0x7E) ? (char) ch : '?';
+    }
+    dst[n] = '\0';
+    return n;
+}
+
+/* Keep only [A-Za-z0-9_] from a username. Returns kept length. */
+static size_t
+sanitize_user (const char *src, char *dst, size_t dstsz)
+{
+    size_t n = 0;
+    for (size_t i = 0; src[i] && n < dstsz - 1; i++) {
+        char ch = src[i];
+        if ((ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z') ||
+            (ch >= '0' && ch <= '9') || ch == '_')
+            dst[n++] = ch;
+    }
+    dst[n] = '\0';
+    return n;
+}
+
+/* -------------------------------------------------------------------------
  * Post + notify
  * ---------------------------------------------------------------------- */
 
@@ -91,7 +130,14 @@ chat_room_post (chat_room_t *pub, const char *user, const char *body)
     assert (user != NULL);
     assert (body != NULL);
 
-    long id = chat_db_insert_message (pub->id, user, body);
+    char clean_user[CHAT_USER_MAX];
+    char clean_body[CHAT_BODY_MAX];
+    if (sanitize_user (user, clean_user, sizeof (clean_user)) == 0)
+        return -1;                               /* empty/invalid username */
+    if (sanitize_text (body, clean_body, sizeof (clean_body)) == 0)
+        return -1;                               /* empty message */
+
+    long id = chat_db_insert_message (pub->id, clean_user, clean_body);
     if (id < 0)
         return -1;
 
@@ -169,16 +215,18 @@ void
 chat_room_presence_set (chat_room_t *pub, const char *user)
 {
     assert (pub != NULL);
-    if (user && user[0])
-        chat_db_presence_set (pub->id, user);
+    char clean[CHAT_USER_MAX];
+    if (user && sanitize_user (user, clean, sizeof (clean)) > 0)
+        chat_db_presence_set (pub->id, clean);
 }
 
 void
 chat_room_presence_clear (chat_room_t *pub, const char *user)
 {
     assert (pub != NULL);
-    if (user && user[0])
-        chat_db_presence_clear (pub->id, user);
+    char clean[CHAT_USER_MAX];
+    if (user && sanitize_user (user, clean, sizeof (clean)) > 0)
+        chat_db_presence_clear (pub->id, clean);
 }
 
 int

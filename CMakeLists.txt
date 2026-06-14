@@ -41,6 +41,9 @@ add_library(netserver_core STATIC
     src/protocol/protocol.c
     src/protocol/telnet/telnet_proto.c
     src/protocol/telnet/telnet_session.c
+    src/protocol/http/http_proto.c
+    src/protocol/http/http_session.c
+    src/features/chat/http_chat.c
     src/ui/ansi.c
     src/ui/menu.c
     src/ui/bbs.c
@@ -65,6 +68,8 @@ target_link_libraries(netserver
 )
 
 install(TARGETS netserver DESTINATION bin)
+# Static web front-end → matches NETSERVER_WEBROOT in deploy/netserver.service
+install(DIRECTORY web/ DESTINATION share/netserver/web)
 
 # API documentation: cmake --build build --target docs
 find_package(Doxygen QUIET)
