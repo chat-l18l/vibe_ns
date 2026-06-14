@@ -41,6 +41,7 @@ static pthread_mutex_t s_lock = PTHREAD_MUTEX_INITIALIZER;
 static http_conn_t    *s_head;
 static bool            s_shutting_down;
 
+/** @brief Add a connection to the registry; flag it if shutdown is underway. */
 static void
 session_register (http_conn_t *c)
 {
@@ -52,6 +53,7 @@ session_register (http_conn_t *c)
     pthread_mutex_unlock (&s_lock);
 }
 
+/** @brief Remove a connection from the registry before its fds close. */
 static void
 session_unregister (http_conn_t *c)
 {
@@ -62,6 +64,7 @@ session_unregister (http_conn_t *c)
     pthread_mutex_unlock (&s_lock);
 }
 
+/** @brief Flag every live connection and wake its poll() via the self-pipe. */
 static void
 http_shutdown_all (void)
 {
@@ -81,7 +84,10 @@ http_shutdown_all (void)
  * Low-level writes
  * ---------------------------------------------------------------------- */
 
-/* Write all of buf; return 0 on success, -1 on error (e.g. client gone). */
+/**
+ * @brief Write the whole buffer, retrying short writes.
+ * @return 0 on success, -1 on error (e.g. the client went away).
+ */
 static int
 send_all (int fd, const char *buf, size_t len)
 {
@@ -97,6 +103,7 @@ send_all (int fd, const char *buf, size_t len)
     return 0;
 }
 
+/** @brief HTTP status code → reason phrase. */
 static const char *
 status_reason (int status)
 {
@@ -228,6 +235,7 @@ http_conn_wait (http_conn_t *c, int timeout_ms)
  * Protocol vtable
  * ---------------------------------------------------------------------- */
 
+/** @brief Allocate a connection and its non-blocking self-pipe. */
 static void *
 http_create_session (int sockfd, const struct sockaddr_storage *peer)
 {
@@ -252,7 +260,12 @@ http_create_session (int sockfd, const struct sockaddr_storage *peer)
     return c;
 }
 
-/* Read a full request (or fail) into buf; return bytes, or -1 to abort. */
+/**
+ * @brief Accumulate bytes until a complete request is parsed.
+ *
+ * Sends a 400/413 error response itself on malformed or oversized input.
+ * @return Request length on success, or -1 to abort the connection.
+ */
 static int
 read_request (http_conn_t *c, char *buf, size_t bufsz, http_request_t *req)
 {
@@ -282,6 +295,7 @@ read_request (http_conn_t *c, char *buf, size_t bufsz, http_request_t *req)
     }
 }
 
+/** @brief Connection body: read one request, dispatch it, then close. */
 static void
 http_run_session (void *session)
 {
@@ -306,6 +320,7 @@ http_run_session (void *session)
     free (c);
 }
 
+/** @brief Flag one connection to stop (async; the poll loop notices). */
 static void
 http_request_shutdown (void *session)
 {

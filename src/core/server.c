@@ -19,6 +19,7 @@
 static volatile sig_atomic_t s_shutdown = 0;
 static volatile sig_atomic_t s_reload   = 0;
 
+/** @brief Async-signal-safe handler: set the shutdown/reload flags. */
 static void
 sig_handler (int sig)
 {

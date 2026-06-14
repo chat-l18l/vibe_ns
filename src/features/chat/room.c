@@ -34,6 +34,7 @@ static int            s_room_count;
 static chat_room_t   *s_room_ptrs[CHAT_MAX_ROOMS];
 static pthread_once_t s_once = PTHREAD_ONCE_INIT;
 
+/** @brief One-time init: open the database and load the room registry. */
 static void
 service_init_once (void)
 {
@@ -90,8 +91,10 @@ chat_room_by_id (long id)
  * trusting each protocol's input path.
  * ---------------------------------------------------------------------- */
 
-/* Copy src→dst keeping only printable ASCII (0x20–0x7E); others become
- * '?'. Returns the number of kept characters (excluding NUL). */
+/**
+ * @brief Copy @p src → @p dst keeping only printable ASCII; others → '?'.
+ * @return Number of characters kept (excluding NUL).
+ */
 static size_t
 sanitize_text (const char *src, char *dst, size_t dstsz)
 {
@@ -104,7 +107,7 @@ sanitize_text (const char *src, char *dst, size_t dstsz)
     return n;
 }
 
-/* Keep only [A-Za-z0-9_] from a username. Returns kept length. */
+/** @brief Keep only [A-Za-z0-9_] from a username. @return kept length. */
 static size_t
 sanitize_user (const char *src, char *dst, size_t dstsz)
 {

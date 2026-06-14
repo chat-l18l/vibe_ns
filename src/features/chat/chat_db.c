@@ -172,7 +172,7 @@ chat_db_insert_message (long room_id, const char *user, const char *body)
     return id;
 }
 
-/* Fill one chat_msg_t from a row of (id, user, ts, body). */
+/** @brief Fill a ::chat_msg_t from a row of (id, user, ts, body). */
 static void
 row_to_msg (sqlite3_stmt *st, chat_msg_t *m)
 {

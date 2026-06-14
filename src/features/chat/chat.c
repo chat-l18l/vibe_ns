@@ -67,12 +67,14 @@ static void chat_on_notify  (telnet_session_t *s);
  * Send helpers
  * ---------------------------------------------------------------------- */
 
+/** @brief Send raw bytes to the client. */
 static void
 csend (chat_state_t *c, const char *buf, size_t len)
 {
     telnet_session_send (c->s, buf, len);
 }
 
+/** @brief printf-style send to the client (capped at 1 KiB per call). */
 static void
 csendf (chat_state_t *c, const char *fmt, ...)
 {
@@ -85,13 +87,14 @@ csendf (chat_state_t *c, const char *fmt, ...)
         telnet_session_send (c->s, buf, (size_t) n);
 }
 
+/** @brief Terminal height from NAWS, clamped to a sane minimum (default 24). */
 static uint16_t
 term_rows (chat_state_t *c)
 {
     return c->s->term_rows > 6 ? c->s->term_rows : 24;
 }
 
-/* Format one message as a telnet display line: "[HH:MM] user: body\r\n". */
+/** @brief Format one message as a telnet line: "[HH:MM] user: body\r\n". */
 static int
 format_msg (const chat_msg_t *m, char *out, size_t outsz)
 {
@@ -109,6 +112,7 @@ format_msg (const chat_msg_t *m, char *out, size_t outsz)
  * Username screen
  * ---------------------------------------------------------------------- */
 
+/** @brief Draw the username prompt screen. */
 static void
 render_username (chat_state_t *c)
 {
@@ -128,6 +132,7 @@ render_username (chat_state_t *c)
  * Lobby screen
  * ---------------------------------------------------------------------- */
 
+/** @brief Draw the lobby (room list with online counts). */
 static void
 render_lobby (chat_state_t *c)
 {
@@ -158,6 +163,7 @@ render_lobby (chat_state_t *c)
  * Room screen — full redraw
  * ---------------------------------------------------------------------- */
 
+/** @brief Full room redraw: header + active users, message page, footer. */
 static void
 render_room (chat_state_t *c)
 {
@@ -214,6 +220,7 @@ render_room (chat_state_t *c)
  * Compose line redraw
  * ---------------------------------------------------------------------- */
 
+/** @brief Redraw just the compose input line (in-place, no scroll). */
 static void
 render_compose (chat_state_t *c)
 {
@@ -226,6 +233,7 @@ render_compose (chat_state_t *c)
  * Enter / leave room
  * ---------------------------------------------------------------------- */
 
+/** @brief Join a room: set presence, subscribe to live updates, draw it. */
 static void
 enter_room (chat_state_t *c, chat_room_t *room)
 {
@@ -245,6 +253,7 @@ enter_room (chat_state_t *c, chat_room_t *room)
     render_room (c);
 }
 
+/** @brief Leave the current room: unsubscribe, clear presence, show lobby. */
 static void
 leave_room (chat_state_t *c)
 {
@@ -263,6 +272,7 @@ leave_room (chat_state_t *c)
  * on_notify — woken by pipe when another user posts to the room
  * ---------------------------------------------------------------------- */
 
+/** @brief Notify-pipe handler: another user posted — redraw if following live. */
 static void
 chat_on_notify (telnet_session_t *s)
 {
@@ -279,6 +289,7 @@ chat_on_notify (telnet_session_t *s)
  * Key handlers per state
  * ---------------------------------------------------------------------- */
 
+/** @brief Username-entry keystrokes (alnum/_, backspace, Enter). */
 static bool
 handle_username (chat_state_t *c, char key)
 {
@@ -304,6 +315,7 @@ handle_username (chat_state_t *c, char key)
     return true;
 }
 
+/** @brief Lobby keystrokes: digit selects a room, Q exits chat. */
 static bool
 handle_lobby (chat_state_t *c, char key)
 {
@@ -319,6 +331,7 @@ handle_lobby (chat_state_t *c, char key)
     return true;
 }
 
+/** @brief In-room keystrokes: Enter/i compose, p/n page, q/Q leave. */
 static bool
 handle_in_room (chat_state_t *c, char key)
 {
@@ -351,6 +364,7 @@ handle_in_room (chat_state_t *c, char key)
     return true;
 }
 
+/** @brief Compose-mode keystrokes: edit, Esc/Ctrl-C cancel, Enter post. */
 static bool
 handle_compose (chat_state_t *c, char key)
 {
@@ -392,6 +406,7 @@ handle_compose (chat_state_t *c, char key)
  * game_ops_t
  * ---------------------------------------------------------------------- */
 
+/** @brief game_ops create: allocate state, show username or lobby. */
 static void *
 chat_create (telnet_session_t *s)
 {
@@ -411,6 +426,7 @@ chat_create (telnet_session_t *s)
     return c;
 }
 
+/** @brief game_ops key dispatch: route to the current state's handler. */
 static bool
 chat_handle_key (void *state, char key)
 {
@@ -425,6 +441,7 @@ chat_handle_key (void *state, char key)
     }
 }
 
+/** @brief game_ops destroy: unsubscribe, clear presence, free state. */
 static void
 chat_destroy (void *state)
 {

@@ -21,6 +21,7 @@ http_method_name (http_method_t m)
     }
 }
 
+/** @brief Hex digit → value 0–15, or -1 if not a hex digit. */
 static int
 hexval (char c)
 {
@@ -30,8 +31,10 @@ hexval (char c)
     return -1;
 }
 
-/* Percent-decode src[0..slen) into dst. '+' becomes space only when
- * plus_space is set (query strings, not paths). NUL-terminates dst. */
+/**
+ * @brief Percent-decode @p src[0..slen) into @p dst (NUL-terminated).
+ * @param plus_space  Decode '+' as space — true for query strings, not paths.
+ */
 static void
 url_decode (const char *src, size_t slen, char *dst, size_t dsz, bool plus_space)
 {

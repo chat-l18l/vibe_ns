@@ -33,7 +33,7 @@
  * JSON helpers
  * ---------------------------------------------------------------------- */
 
-/* Escape a (printable-ASCII) string into a JSON string body, no quotes. */
+/** @brief Escape a string into a JSON string body (no surrounding quotes). */
 static void
 json_escape (const char *s, char *out, size_t outsz)
 {
@@ -56,6 +56,7 @@ json_escape (const char *s, char *out, size_t outsz)
     out[o] = '\0';
 }
 
+/** @brief Render one message as a JSON object. @return bytes written. */
 static int
 msg_to_json (const chat_msg_t *m, char *out, size_t outsz)
 {
@@ -67,8 +68,13 @@ msg_to_json (const chat_msg_t *m, char *out, size_t outsz)
                      m->id, eu, m->ts, eb);
 }
 
-/* Extract a JSON string value for "key" from a (non-NUL-terminated) body.
- * Minimal: handles the common backslash escapes, not \uXXXX. */
+/**
+ * @brief Extract the JSON string value of @p key from a request body.
+ *
+ * Minimal scanner for our own client's payloads: handles the common
+ * backslash escapes, not \\uXXXX. The body need not be NUL-terminated.
+ * @return 1 if found (value written to @p out), else 0.
+ */
 static int
 json_get_string (const char *body, size_t len, const char *key,
                  char *out, size_t outsz)
@@ -106,6 +112,7 @@ json_get_string (const char *body, size_t len, const char *key,
  * REST handlers
  * ---------------------------------------------------------------------- */
 
+/** @brief GET /api/rooms → JSON array of {id, name}. */
 static void
 handle_rooms (http_conn_t *c)
 {
@@ -126,6 +133,7 @@ handle_rooms (http_conn_t *c)
     http_respond_json (c, 200, buf);
 }
 
+/** @brief GET /api/rooms/{id}/messages?since=&limit= → JSON array. */
 static void
 handle_messages_get (http_conn_t *c, chat_room_t *room, const http_request_t *req)
 {
@@ -157,6 +165,7 @@ handle_messages_get (http_conn_t *c, chat_room_t *room, const http_request_t *re
     free (buf);
 }
 
+/** @brief POST /api/rooms/{id}/messages — body {user, body} → {id}. */
 static void
 handle_messages_post (http_conn_t *c, chat_room_t *room, const http_request_t *req)
 {
@@ -179,6 +188,7 @@ handle_messages_post (http_conn_t *c, chat_room_t *room, const http_request_t *r
     http_respond_json (c, 201, out);
 }
 
+/** @brief GET /api/rooms/{id}/users → {count, users[]}. */
 static void
 handle_users (http_conn_t *c, chat_room_t *room)
 {
@@ -202,6 +212,11 @@ handle_users (http_conn_t *c, chat_room_t *room)
  * SSE event stream
  * ---------------------------------------------------------------------- */
 
+/**
+ * @brief GET /api/events/rooms/{id} — hold the connection open as an SSE
+ *        stream, emitting one frame per new message until the client or the
+ *        server closes it. Optional @c ?user= registers presence.
+ */
 static void
 handle_sse (http_conn_t *c, chat_room_t *room, const http_request_t *req)
 {
@@ -249,6 +264,7 @@ handle_sse (http_conn_t *c, chat_room_t *room, const http_request_t *req)
  * Static files (dev convenience; production can front with nginx)
  * ---------------------------------------------------------------------- */
 
+/** @brief Serve a fixed file from the web root (no path traversal possible). */
 static void
 serve_static (http_conn_t *c, const char *name, const char *ctype)
 {
@@ -281,7 +297,10 @@ serve_static (http_conn_t *c, const char *name, const char *ctype)
  * Router — the http_dispatch hook called by http_session.c
  * ---------------------------------------------------------------------- */
 
-/* If path is "/api/rooms/<id>/<tail>", set *id and return <tail>; else NULL. */
+/**
+ * @brief Match "/api/rooms/<id>/<tail>".
+ * @return Pointer to <tail> with @p id set, or NULL if the path doesn't match.
+ */
 static const char *
 match_room_sub (const char *path, long *id)
 {
@@ -297,6 +316,7 @@ match_room_sub (const char *path, long *id)
     return e + 1;
 }
 
+/** @brief Route one request to the matching handler (the http_dispatch hook). */
 void
 http_dispatch (http_conn_t *c, const http_request_t *req)
 {

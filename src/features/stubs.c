@@ -13,6 +13,7 @@
  * Shared helpers
  * ---------------------------------------------------------------------- */
 
+/** @brief Render a "coming soon" screen for a placeholder feature. */
 static void *
 coming_soon (telnet_session_t *s, const char *feature_name, const char *description)
 {
@@ -31,6 +32,7 @@ coming_soon (telnet_session_t *s, const char *feature_name, const char *descript
     return (void *) 1;  /* non-NULL = success, no heap allocation */
 }
 
+/** @brief Shared stub key handler: any key returns to the main menu. */
 static bool
 stub_handle_key (void *state, char key)
 {
@@ -39,6 +41,7 @@ stub_handle_key (void *state, char key)
     return false;   /* immediately return to main menu */
 }
 
+/** @brief Shared stub destructor: nothing to free (no heap state). */
 static void
 stub_destroy (void *state)
 {
