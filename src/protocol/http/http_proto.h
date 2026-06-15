@@ -40,6 +40,15 @@ typedef struct {
 
 /**
  * @brief Try to parse one request from an accumulating buffer.
+ *
+ * Call repeatedly as bytes arrive: a return of 0 means "incomplete, read
+ * more" (the request line, the blank line, or the body is not all in yet),
+ * so fragmented requests are handled by re-calling with a longer @p buf.
+ *
+ * Line-ending agnostic: CRLF, bare LF and mixed endings all parse
+ * (RFC 7230 §3.5). The request line may omit the HTTP version
+ * (HTTP/0.9-style "GET /"). The header block ends at the first blank line.
+ *
  * @return Total request length (headers + body) on success — the number
  *         of bytes consumed; 0 if more data is needed; -1 if malformed.
  */

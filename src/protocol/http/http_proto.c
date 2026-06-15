@@ -55,66 +55,111 @@ url_decode (const char *src, size_t slen, char *dst, size_t dsz, bool plus_space
     dst[di] = '\0';
 }
 
-int
-http_parse_request (const char *buf, size_t len, http_request_t *out)
+/**
+ * @brief Return the next line as [start, start+*len), line-ending agnostic.
+ *
+ * Treats '\n' as the separator and strips a single trailing '\r', so CRLF,
+ * bare LF and mixed endings all parse (RFC 7230 §3.5 robustness). A blank
+ * line yields @c *len == 0.
+ *
+ * @param p     Cursor into the buffer.
+ * @param end   One past the last valid byte.
+ * @param len   Receives the line length excluding the ending.
+ * @param next  Receives the cursor just past the '\n'.
+ * @return Line start, or NULL if no complete line is buffered yet.
+ */
+static const char *
+get_line (const char *p, const char *end, size_t *len, const char **next)
 {
-    const char *hdr_end = memmem (buf, len, "\r\n\r\n", 4);
-    if (!hdr_end)
-        return 0;                                 /* headers incomplete */
-    size_t header_len = (size_t) (hdr_end - buf) + 4;
+    const char *nl = memchr (p, '\n', (size_t) (end - p));
+    if (!nl)
+        return NULL;                              /* line not fully received */
+    size_t l = (size_t) (nl - p);
+    if (l > 0 && p[l - 1] == '\r')
+        l--;                                      /* strip trailing CR */
+    *len  = l;
+    *next = nl + 1;
+    return p;
+}
 
-    const char *line_end = memchr (buf, '\r', len);
-    if (!line_end)
-        return -1;
+/** @brief Parse the request line [line, line+llen): method, target, version. */
+static int
+parse_request_line (const char *line, size_t llen, http_request_t *out)
+{
+    const char *line_end = line + llen;
 
-    /* method */
-    const char *sp1 = memchr (buf, ' ', (size_t) (line_end - buf));
+    const char *sp1 = memchr (line, ' ', llen);
     if (!sp1)
-        return -1;
-    size_t mlen = (size_t) (sp1 - buf);
-    if      (mlen == 3 && !memcmp (buf, "GET", 3))    out->method = HTTP_M_GET;
-    else if (mlen == 4 && !memcmp (buf, "POST", 4))   out->method = HTTP_M_POST;
-    else if (mlen == 3 && !memcmp (buf, "PUT", 3))    out->method = HTTP_M_PUT;
-    else if (mlen == 6 && !memcmp (buf, "DELETE", 6)) out->method = HTTP_M_DELETE;
-    else                                              out->method = HTTP_M_OTHER;
+        return -1;                                /* no method/target split */
 
-    /* request target: PATH[?QUERY] */
+    size_t mlen = (size_t) (sp1 - line);
+    if      (mlen == 3 && !memcmp (line, "GET", 3))    out->method = HTTP_M_GET;
+    else if (mlen == 4 && !memcmp (line, "POST", 4))   out->method = HTTP_M_POST;
+    else if (mlen == 3 && !memcmp (line, "PUT", 3))    out->method = HTTP_M_PUT;
+    else if (mlen == 6 && !memcmp (line, "DELETE", 6)) out->method = HTTP_M_DELETE;
+    else                                               out->method = HTTP_M_OTHER;
+
+    /* target = up to the next space, or the rest of the line when no version
+     * is given (HTTP/0.9-style "GET /") */
     const char *target = sp1 + 1;
     const char *sp2 = memchr (target, ' ', (size_t) (line_end - target));
-    if (!sp2)
-        return -1;
-    size_t tlen = (size_t) (sp2 - target);
+    const char *target_end = sp2 ? sp2 : line_end;
+
+    size_t tlen = (size_t) (target_end - target);
     const char *q = memchr (target, '?', tlen);
     size_t plen = q ? (size_t) (q - target) : tlen;
 
     url_decode (target, plen, out->path, sizeof (out->path), false);
     if (q) {
-        size_t qlen = (size_t) (sp2 - (q + 1));
+        size_t qlen = (size_t) (target_end - (q + 1));
         size_t cp = qlen < sizeof (out->query) - 1 ? qlen : sizeof (out->query) - 1;
         memcpy (out->query, q + 1, cp);
         out->query[cp] = '\0';
     } else {
         out->query[0] = '\0';
     }
+    return 0;
+}
 
-    /* headers */
+int
+http_parse_request (const char *buf, size_t len, http_request_t *out)
+{
+    const char *end = buf + len;
+    const char *p   = buf;
+    const char *next;
+    size_t      llen;
+
+    /* request line */
+    const char *line = get_line (p, end, &llen, &next);
+    if (!line)
+        return 0;                                 /* need more */
+    if (parse_request_line (line, llen, out) != 0)
+        return -1;                                /* malformed */
+    p = next;
+
+    /* headers until a blank line */
     out->content_length = 0;
     out->keep_alive     = false;
-    const char *p = line_end + 2;                 /* first header line */
-    while (p < hdr_end) {
-        const char *eol = memchr (p, '\r', (size_t) (hdr_end - p));
-        if (!eol) break;
-        size_t hlen = (size_t) (eol - p);
-        if (hlen >= 15 && !strncasecmp (p, "Content-Length:", 15)) {
-            out->content_length = strtol (p + 15, NULL, 10);
+    for (;;) {
+        line = get_line (p, end, &llen, &next);
+        if (!line)
+            return 0;                             /* no blank line yet */
+        if (llen == 0) {                          /* end of headers */
+            p = next;
+            break;
+        }
+        if (llen >= 15 && !strncasecmp (line, "Content-Length:", 15)) {
+            out->content_length = strtol (line + 15, NULL, 10);
             if (out->content_length < 0) out->content_length = 0;
-        } else if (hlen >= 11 && !strncasecmp (p, "Connection:", 11)) {
-            if (memmem (p + 11, hlen - 11, "keep-alive", 10))
+        } else if (llen >= 11 && !strncasecmp (line, "Connection:", 11)) {
+            if (memmem (line + 11, llen - 11, "keep-alive", 10))
                 out->keep_alive = true;
         }
-        p = eol + 2;
+        p = next;
     }
 
+    /* body */
+    size_t header_len = (size_t) (p - buf);
     size_t total = header_len + (size_t) out->content_length;
     if (len < total)
         return 0;                                 /* body incomplete */
