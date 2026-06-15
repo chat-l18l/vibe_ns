@@ -9,9 +9,13 @@ Type=simple
 # systemd creates /var/lib/netserver (root-owned by default). The app starts as
 # root to bind port 23, then drops to 'nobody', so make the state dir writable
 # by that user before launch.
+# The chat SQLite database lives at $STATE_DIRECTORY/chat.db (+ WAL sidecars).
 StateDirectory=netserver
 ExecStartPre=+/bin/chown nobody:nogroup /var/lib/netserver
-ExecStart=/usr/local/bin/netserver --port 23 --user nobody --max-conn 2000
+# Static web front-end is served from here; production may instead front the
+# HTTP port with nginx and drop this. --http-port 8080 enables the REST/SSE API.
+Environment=NETSERVER_WEBROOT=/usr/local/share/netserver/web
+ExecStart=/usr/local/bin/netserver --port 23 --http-port 8080 --user nobody --max-conn 2000
 # Each connection uses 3 fds (socket + notify pipe pair); the default
 # soft limit of 1024 would cap us at ~340 connections.
 LimitNOFILE=65536

@@ -11,6 +11,7 @@
 #include <string.h>
 #include <assert.h>
 
+/** @brief Placeholder: show a "not implemented" notice, then return to menu. */
 static void *
 chess_create (telnet_session_t *session)
 {

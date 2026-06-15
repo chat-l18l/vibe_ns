@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OETELX Chat</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font: 15px/1.4 ui-monospace, Menlo, Consolas, monospace;
+      background: #0e1116; color: #d8dee9; height: 100vh; display: flex;
+    }
+    #sidebar {
+      width: 200px; border-right: 1px solid #20262e; padding: 12px;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    #sidebar h1 { font-size: 15px; color: #6cb6ff; margin: 0 0 8px; }
+    .room {
+      padding: 6px 8px; border-radius: 5px; cursor: pointer; color: #adbac7;
+    }
+    .room:hover { background: #1b212a; }
+    .room.active { background: #243042; color: #6cb6ff; }
+    .room small { color: #6a737d; }
+    #main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    #head { padding: 10px 14px; border-bottom: 1px solid #20262e; }
+    #head b { color: #6cb6ff; }
+    #who { color: #6a737d; font-size: 13px; }
+    #log { flex: 1; overflow-y: auto; padding: 12px 14px; }
+    .msg { margin: 2px 0; }
+    .msg .t { color: #545d68; }
+    .msg .u { color: #f0b72f; font-weight: bold; }
+    #bar { display: flex; gap: 8px; padding: 10px 14px; border-top: 1px solid #20262e; }
+    #bar input { font: inherit; }
+    #name { width: 110px; }
+    #text { flex: 1; }
+    input {
+      background: #11161d; border: 1px solid #283039; color: #d8dee9;
+      border-radius: 5px; padding: 7px 9px;
+    }
+    input:focus { outline: none; border-color: #316dca; }
+    button {
+      font: inherit; background: #2b5fd9; color: #fff; border: 0;
+      border-radius: 5px; padding: 7px 14px; cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div id="sidebar">
+    <h1>OETELX Chat</h1>
+    <div id="rooms"></div>
+  </div>
+  <div id="main">
+    <div id="head"><b id="title">#…</b> <span id="who"></span></div>
+    <div id="log"></div>
+    <form id="bar">
+      <input id="name" placeholder="naam" autocomplete="off">
+      <input id="text" placeholder="bericht…" autocomplete="off">
+      <button type="submit">Stuur</button>
+    </form>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

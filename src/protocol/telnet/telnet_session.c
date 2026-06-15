@@ -38,6 +38,7 @@ static pthread_mutex_t   s_sessions_lock = PTHREAD_MUTEX_INITIALIZER;
 static telnet_session_t *s_session_head;
 static bool              s_shutting_down;   /* guarded by s_sessions_lock */
 
+/** @brief Add a session to the registry; flag it if shutdown is underway. */
 static void
 session_register (telnet_session_t *s)
 {
@@ -49,6 +50,7 @@ session_register (telnet_session_t *s)
     pthread_mutex_unlock (&s_sessions_lock);
 }
 
+/** @brief Remove a session from the registry before it closes its pipe. */
 static void
 session_unregister (telnet_session_t *s)
 {
@@ -62,6 +64,7 @@ session_unregister (telnet_session_t *s)
     pthread_mutex_unlock (&s_sessions_lock);
 }
 
+/** @brief Flag every live session and wake its poll() loop (shutdown_all). */
 static void
 telnet_shutdown_all (void)
 {
@@ -81,6 +84,7 @@ telnet_shutdown_all (void)
  * Send helpers
  * ---------------------------------------------------------------------- */
 
+/** @brief Write the queued send buffer to the socket. @return 0 ok, -1 error. */
 static int
 session_flush (telnet_session_t *s)
 {
@@ -99,6 +103,7 @@ session_flush (telnet_session_t *s)
     return 0;
 }
 
+/** @brief Append bytes to the send buffer. @return 0 ok, -1 if it won't fit. */
 static int
 session_append (telnet_session_t *s, const void *data, size_t len)
 {
@@ -123,6 +128,7 @@ telnet_session_send (telnet_session_t *session, const char *data, size_t len)
  * IAC callbacks
  * ---------------------------------------------------------------------- */
 
+/** @brief IAC data callback: feed each decoded key byte into the FSM. */
 static void
 on_data (void *ctx, const uint8_t *buf, size_t len)
 {
@@ -157,6 +163,7 @@ on_data (void *ctx, const uint8_t *buf, size_t len)
     }
 }
 
+/** @brief IAC option callback: record negotiated options, end negotiation. */
 static void
 on_option (void *ctx, const iac_option_event_t *ev)
 {
@@ -176,6 +183,7 @@ on_option (void *ctx, const iac_option_event_t *ev)
     }
 }
 
+/** @brief IAC subnegotiation callback: parse NAWS window size. */
 static void
 on_subneg (void *ctx, const iac_sb_event_t *ev)
 {
@@ -201,6 +209,7 @@ static const iac_callbacks_t iac_cbs = {
  * FSM actions
  * ---------------------------------------------------------------------- */
 
+/** @brief FSM action: offer ECHO/SGA and request NAWS. */
 static fsm_action_result_t
 act_send_negotiations (void *ctx, fsm_event_t ev, const void *data)
 {
@@ -225,6 +234,7 @@ act_send_negotiations (void *ctx, fsm_event_t ev, const void *data)
     return FSM_ACTION_OK;
 }
 
+/** @brief FSM action: render the BBS main screen. */
 static fsm_action_result_t
 act_show_main_menu (void *ctx, fsm_event_t ev, const void *data)
 {
@@ -250,6 +260,7 @@ act_show_main_menu (void *ctx, fsm_event_t ev, const void *data)
     return FSM_ACTION_OK;
 }
 
+/** @brief FSM action: resolve a menu keystroke to a selection or quit. */
 static fsm_action_result_t
 act_handle_menu_key (void *ctx, fsm_event_t ev, const void *data)
 {
@@ -271,6 +282,7 @@ act_handle_menu_key (void *ctx, fsm_event_t ev, const void *data)
     return FSM_ACTION_OK;
 }
 
+/** @brief FSM action: instantiate the selected game/feature. */
 static fsm_action_result_t
 act_start_game (void *ctx, fsm_event_t ev, const void *data)
 {
@@ -297,6 +309,7 @@ act_start_game (void *ctx, fsm_event_t ev, const void *data)
     return FSM_ACTION_OK;
 }
 
+/** @brief FSM action: forward a keystroke to the active game/feature. */
 static fsm_action_result_t
 act_game_key (void *ctx, fsm_event_t ev, const void *data)
 {
@@ -325,6 +338,7 @@ act_game_key (void *ctx, fsm_event_t ev, const void *data)
     return FSM_ACTION_OK;
 }
 
+/** @brief FSM action: send a goodbye and shut the socket down. */
 static fsm_action_result_t
 act_close (void *ctx, fsm_event_t ev, const void *data)
 {
@@ -370,6 +384,7 @@ static const fsm_def_t telnet_fsm_def = {
  * Menu setup
  * ---------------------------------------------------------------------- */
 
+/** @brief Append one item to the main menu. */
 static void
 menu_add (menu_t *m, char key, const char *label, const game_ops_t *ops)
 {
@@ -381,6 +396,7 @@ menu_add (menu_t *m, char key, const char *label, const game_ops_t *ops)
     it->label[MENU_LABEL_MAX - 1] = '\0';
 }
 
+/** @brief Build the BBS main menu (games, features, quit). */
 static void
 setup_main_menu (telnet_session_t *s)
 {
@@ -411,6 +427,7 @@ setup_main_menu (telnet_session_t *s)
  * Protocol vtable
  * ---------------------------------------------------------------------- */
 
+/** @brief Allocate and initialize a telnet session (FSM, menu, self-pipe). */
 static void *
 telnet_create_session (int sockfd, const struct sockaddr_storage *peer)
 {
@@ -450,6 +467,7 @@ telnet_create_session (int sockfd, const struct sockaddr_storage *peer)
     return s;
 }
 
+/** @brief Session event loop: poll socket + notify pipe, drive the FSM. */
 static void
 telnet_run_session (void *session)
 {
@@ -542,6 +560,7 @@ telnet_run_session (void *session)
     free (s);
 }
 
+/** @brief Flag one session to stop (async; the poll loop notices). */
 static void
 telnet_request_shutdown (void *session)
 {

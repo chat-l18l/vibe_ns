@@ -1,9 +1,13 @@
 # Build output
 build/
+build-rel/
 *.o
 *.a
 *.so
 *.so.*
+
+# Runtime data (chat database + WAL sidecars)
+data/
 
 # CMake generated
 CMakeCache.txt

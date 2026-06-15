@@ -6,9 +6,10 @@ PROJECT_NAME           = "netserver"
 PROJECT_BRIEF          = "OETELX BBS — multi-protocol network game server"
 PROJECT_NUMBER         = 0.1
 
-INPUT                  = src README.md
+INPUT                  = src README.md docs/ARCHITECTURE.md
 RECURSIVE              = YES
 USE_MDFILE_AS_MAINPAGE = README.md
+# third_party/ (the SQLite amalgamation) is intentionally outside INPUT.
 
 OUTPUT_DIRECTORY       = docs/api
 GENERATE_HTML          = YES

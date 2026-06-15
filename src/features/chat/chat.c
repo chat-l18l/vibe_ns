@@ -7,6 +7,9 @@
  * scroll the terminal. Live updates arrive via the session notify pipe
  * and trigger a full room redraw — simple and always correct at chat
  * message rates.
+ *
+ * Paging uses message ids as the cursor (see room.h / chat_db): the live
+ * view shows the newest page; 'p' walks older pages; 'n' returns to live.
  */
 
 #include "chat.h"
@@ -19,6 +22,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 #include <assert.h>
 
 /* -------------------------------------------------------------------------
@@ -32,7 +36,8 @@ enum {
     CHAT_ST_COMPOSE,
 };
 
-#define CHAT_MSG_LINES  18
+#define CHAT_MSG_LINES  18   /**< Max message rows rendered per screen. */
+#define CHAT_MAX_WHO    16   /**< Max active users shown in the header. */
 
 typedef struct {
     telnet_session_t *s;
@@ -42,8 +47,8 @@ typedef struct {
     int               compose_len;
     char              username_buf[32];
     int               username_len;
-    off_t             view_tail;
-    bool              at_live;
+    long              oldest_shown;  /* smallest message id on screen */
+    bool              at_live;       /* true = following the newest page */
 } chat_state_t;
 
 /* -------------------------------------------------------------------------
@@ -62,12 +67,14 @@ static void chat_on_notify  (telnet_session_t *s);
  * Send helpers
  * ---------------------------------------------------------------------- */
 
+/** @brief Send raw bytes to the client. */
 static void
 csend (chat_state_t *c, const char *buf, size_t len)
 {
     telnet_session_send (c->s, buf, len);
 }
 
+/** @brief printf-style send to the client (capped at 1 KiB per call). */
 static void
 csendf (chat_state_t *c, const char *fmt, ...)
 {
@@ -80,33 +87,43 @@ csendf (chat_state_t *c, const char *fmt, ...)
         telnet_session_send (c->s, buf, (size_t) n);
 }
 
+/** @brief Terminal height from NAWS, clamped to a sane minimum (default 24). */
 static uint16_t
 term_rows (chat_state_t *c)
 {
     return c->s->term_rows > 6 ? c->s->term_rows : 24;
 }
 
+/** @brief Format one message as a telnet line: "[HH:MM] user: body\r\n". */
+static int
+format_msg (const chat_msg_t *m, char *out, size_t outsz)
+{
+    struct tm tm;
+    time_t    t = (time_t) m->ts;
+    gmtime_r (&t, &tm);
+    char hhmm[6];
+    strftime (hhmm, sizeof (hhmm), "%H:%M", &tm);
+    return snprintf (out, outsz,
+                     "\x1b[2m[%s]\x1b[0m \x1b[1m%s\x1b[0m: %s\r\n",
+                     hhmm, m->user, m->body);
+}
+
 /* -------------------------------------------------------------------------
  * Username screen
  * ---------------------------------------------------------------------- */
 
+/** @brief Draw the username prompt screen. */
 static void
 render_username (chat_state_t *c)
 {
-    csend (c,
+    static const char screen[] =
         "\x1b[2J\x1b[H"
         "\x1b[1;36m  OETELX CHAT\x1b[0m\r\n"
         "\r\n"
         "  Kies een naam (letters, cijfers, _ — max 20).\r\n"
         "\r\n"
-        "  Naam: ",
-        strlen (
-        "\x1b[2J\x1b[H"
-        "\x1b[1;36m  OETELX CHAT\x1b[0m\r\n"
-        "\r\n"
-        "  Kies een naam (letters, cijfers, _ — max 20).\r\n"
-        "\r\n"
-        "  Naam: "));
+        "  Naam: ";
+    csend (c, screen, sizeof (screen) - 1);
     if (c->username_len > 0)
         csend (c, c->username_buf, (size_t) c->username_len);
 }
@@ -115,71 +132,85 @@ render_username (chat_state_t *c)
  * Lobby screen
  * ---------------------------------------------------------------------- */
 
+/** @brief Draw the lobby (room list with online counts). */
 static void
 render_lobby (chat_state_t *c)
 {
     int           count;
     chat_room_t **rooms = chat_rooms_list (&count);
 
-    csend (c,
+    static const char head[] =
         "\x1b[2J\x1b[H"
         "\x1b[1;36m  OETELX CHAT\x1b[0m\r\n"
         "\x1b[2m  ─────────────────────────\x1b[0m\r\n"
-        "\r\n",
-        strlen (
-        "\x1b[2J\x1b[H"
-        "\x1b[1;36m  OETELX CHAT\x1b[0m\r\n"
-        "\x1b[2m  ─────────────────────────\x1b[0m\r\n"
-        "\r\n"));
+        "\r\n";
+    csend (c, head, sizeof (head) - 1);
 
-    for (int i = 0; i < count; i++)
-        csendf (c, "  \x1b[33m[%d]\x1b[0m  #%s\r\n", i + 1, rooms[i]->name);
+    char who[CHAT_MAX_WHO][CHAT_USER_MAX];
+    for (int i = 0; i < count; i++) {
+        int un = chat_room_users (rooms[i], who, CHAT_MAX_WHO);
+        csendf (c, "  \x1b[33m[%d]\x1b[0m  #%-10s \x1b[2m%d online\x1b[0m\r\n",
+                i + 1, rooms[i]->name, un);
+    }
 
-    csend (c,
+    static const char foot[] =
         "\r\n"
-        "\x1b[2m  [1-3] kies room   [Q] terug naar menu\x1b[0m\r\n",
-        strlen (
-        "\r\n"
-        "\x1b[2m  [1-3] kies room   [Q] terug naar menu\x1b[0m\r\n"));
+        "\x1b[2m  [1-3] kies room   [Q] terug naar menu\x1b[0m\r\n";
+    csend (c, foot, sizeof (foot) - 1);
 }
 
 /* -------------------------------------------------------------------------
  * Room screen — full redraw
  * ---------------------------------------------------------------------- */
 
+/** @brief Full room redraw: header + active users, message page, footer. */
 static void
 render_room (chat_state_t *c)
 {
     uint16_t r = term_rows (c);
 
-    /* header + separator stream from row 1; cursor ends at row 3 */
+    /* how many message rows fit (leave room for 2 header + 3 footer) */
+    int avail = (int) r - 5;
+    int want  = (avail > 0 && avail < CHAT_MSG_LINES) ? avail : CHAT_MSG_LINES;
+
+    chat_msg_t msgs[CHAT_MSG_LINES];
+    long anchor = c->at_live ? 0 : c->oldest_shown;  /* 0 = newest page */
+    int  n = chat_room_before (c->room, anchor, want, msgs, CHAT_MSG_LINES);
+    if (n > 0)
+        c->oldest_shown = msgs[0].id;
+
+    /* active users for the header line */
+    char who[CHAT_MAX_WHO][CHAT_USER_MAX];
+    int  un = chat_room_users (c->room, who, CHAT_MAX_WHO);
+    char wholist[256];
+    size_t wl = 0;
+    wholist[0] = '\0';
+    for (int i = 0; i < un; i++) {
+        int w = snprintf (wholist + wl, sizeof (wholist) - wl,
+                          "%s%s", i ? ", " : "", who[i]);
+        if (w < 0 || (size_t) w >= sizeof (wholist) - wl) break;
+        wl += (size_t) w;
+    }
+
+    /* header (row 1) + separator (row 2) */
     csendf (c,
         "\x1b[2J\x1b[H"
-        "\x1b[1;36m  #%s\x1b[0m\r\n"
+        "\x1b[1;36m  #%s\x1b[0m  \x1b[2m(%d online: %s)\x1b[0m\r\n"
         "\x1b[2m  ───────────────────────────────────────\x1b[0m\r\n",
-        c->room->name);
+        c->room->name, un, wholist);
 
-    char  hist[8192];
-    off_t new_tail;
-    /* cap to available message rows so content never reaches footer */
-    int   avail = (int) r - 5;
-    int   want  = (avail > 0 && avail < CHAT_MSG_LINES) ? avail : CHAT_MSG_LINES;
-    int   lines = chat_room_read_history (c->room, c->view_tail,
-                                          want, hist, sizeof (hist),
-                                          &new_tail);
-    if (c->view_tail == 0)
-        c->view_tail = new_tail;
-
-    if (lines > 0)
-        csend (c, hist, strlen (hist));
+    /* message rows (stream from row 3) */
+    char line[640];
+    for (int i = 0; i < n; i++) {
+        int w = format_msg (&msgs[i], line, sizeof (line));
+        if (w > 0) csend (c, line, (size_t) w);
+    }
 
     /* footer: absolute positioning — no \r\n drift, no terminal scroll */
     csendf (c,
         "\x1b[%u;1H\x1b[2m  ─────────────────────────────────────────\x1b[0m",
         (unsigned)(r - 2));
-    csendf (c,
-        "\x1b[%u;1H  > ",
-        (unsigned)(r - 1));
+    csendf (c, "\x1b[%u;1H  > ", (unsigned)(r - 1));
     csendf (c,
         "\x1b[%u;1H\x1b[2m  [Enter]schrijf  [p]ouder  [n]nieuwer  [q]verlaat  [Q]quit\x1b[0m",
         (unsigned) r);
@@ -189,6 +220,7 @@ render_room (chat_state_t *c)
  * Compose line redraw
  * ---------------------------------------------------------------------- */
 
+/** @brief Redraw just the compose input line (in-place, no scroll). */
 static void
 render_compose (chat_state_t *c)
 {
@@ -201,13 +233,16 @@ render_compose (chat_state_t *c)
  * Enter / leave room
  * ---------------------------------------------------------------------- */
 
+/** @brief Join a room: set presence, subscribe to live updates, draw it. */
 static void
 enter_room (chat_state_t *c, chat_room_t *room)
 {
-    c->room      = room;
-    c->view_tail = 0;
-    c->at_live   = true;
-    c->st        = CHAT_ST_IN_ROOM;
+    c->room         = room;
+    c->oldest_shown = 0;
+    c->at_live      = true;
+    c->st           = CHAT_ST_IN_ROOM;
+
+    chat_room_presence_set (room, c->s->username);
 
     /* The session owns its notify pipe; we only lend the write end to
      * the room and hook on_notify for the duration of the visit. */
@@ -218,11 +253,13 @@ enter_room (chat_state_t *c, chat_room_t *room)
     render_room (c);
 }
 
+/** @brief Leave the current room: unsubscribe, clear presence, show lobby. */
 static void
 leave_room (chat_state_t *c)
 {
     if (c->room) {
         chat_room_unsubscribe (c->room, c->s->notify_wfd);
+        chat_room_presence_clear (c->room, c->s->username);
         c->room = NULL;
     }
     c->s->on_notify = NULL;
@@ -235,17 +272,14 @@ leave_room (chat_state_t *c)
  * on_notify — woken by pipe when another user posts to the room
  * ---------------------------------------------------------------------- */
 
+/** @brief Notify-pipe handler: another user posted — redraw if following live. */
 static void
 chat_on_notify (telnet_session_t *s)
 {
     chat_state_t *c = (chat_state_t *) s->game_state;
     if (!c || c->st == CHAT_ST_LOBBY || c->st == CHAT_ST_USERNAME) return;
-    if (!c->at_live) return;
+    if (!c->at_live) return;   /* user is reading history — don't yank them */
 
-    /* full redraw — simpler and correct; chat traffic is low enough.
-     * Reset view_tail so render_room reads up to the *new* end of file
-     * instead of the offset frozen at the previous render. */
-    c->view_tail = 0;
     render_room (c);
     if (c->st == CHAT_ST_COMPOSE)
         render_compose (c);
@@ -255,6 +289,7 @@ chat_on_notify (telnet_session_t *s)
  * Key handlers per state
  * ---------------------------------------------------------------------- */
 
+/** @brief Username-entry keystrokes (alnum/_, backspace, Enter). */
 static bool
 handle_username (chat_state_t *c, char key)
 {
@@ -280,6 +315,7 @@ handle_username (chat_state_t *c, char key)
     return true;
 }
 
+/** @brief Lobby keystrokes: digit selects a room, Q exits chat. */
 static bool
 handle_lobby (chat_state_t *c, char key)
 {
@@ -295,6 +331,7 @@ handle_lobby (chat_state_t *c, char key)
     return true;
 }
 
+/** @brief In-room keystrokes: Enter/i compose, p/n page, q/Q leave. */
 static bool
 handle_in_room (chat_state_t *c, char key)
 {
@@ -309,28 +346,25 @@ handle_in_room (chat_state_t *c, char key)
         return true;
     }
     if (key == 'p') {
-        /* scroll back — read older history */
-        char  hist[8192];
-        off_t new_tail;
-        chat_room_read_history (c->room, c->view_tail,
-                                CHAT_MSG_LINES, hist, sizeof (hist),
-                                &new_tail);
-        if (new_tail < c->view_tail) {
-            c->view_tail = new_tail;
-            c->at_live   = false;
+        /* page older: messages before the oldest currently shown */
+        chat_msg_t msgs[CHAT_MSG_LINES];
+        int n = chat_room_before (c->room, c->oldest_shown, CHAT_MSG_LINES,
+                                  msgs, CHAT_MSG_LINES);
+        if (n > 0) {
+            c->at_live = false;
             render_room (c);
         }
         return true;
     }
     if (key == 'n') {
-        c->view_tail = 0;
-        c->at_live   = true;
+        c->at_live = true;
         render_room (c);
         return true;
     }
     return true;
 }
 
+/** @brief Compose-mode keystrokes: edit, Esc/Ctrl-C cancel, Enter post. */
 static bool
 handle_compose (chat_state_t *c, char key)
 {
@@ -343,11 +377,11 @@ handle_compose (chat_state_t *c, char key)
         if (c->compose_len > 0) {
             c->compose[c->compose_len] = '\0';
             chat_room_post (c->room, c->s->username, c->compose);
+            chat_room_presence_set (c->room, c->s->username);
         }
         c->st          = CHAT_ST_IN_ROOM;
         c->compose_len = 0;
         c->compose[0]  = '\0';
-        c->view_tail   = 0;
         c->at_live     = true;
         render_room (c);
         return true;
@@ -372,10 +406,11 @@ handle_compose (chat_state_t *c, char key)
  * game_ops_t
  * ---------------------------------------------------------------------- */
 
+/** @brief game_ops create: allocate state, show username or lobby. */
 static void *
 chat_create (telnet_session_t *s)
 {
-    chat_rooms_ensure_init ();
+    chat_service_init ();
 
     chat_state_t *c = calloc (1, sizeof (*c));
     if (!c) return NULL;
@@ -391,6 +426,7 @@ chat_create (telnet_session_t *s)
     return c;
 }
 
+/** @brief game_ops key dispatch: route to the current state's handler. */
 static bool
 chat_handle_key (void *state, char key)
 {
@@ -405,13 +441,16 @@ chat_handle_key (void *state, char key)
     }
 }
 
+/** @brief game_ops destroy: unsubscribe, clear presence, free state. */
 static void
 chat_destroy (void *state)
 {
     chat_state_t *c = (chat_state_t *) state;
     if (!c) return;
-    if (c->room)
+    if (c->room) {
         chat_room_unsubscribe (c->room, c->s->notify_wfd);
+        chat_room_presence_clear (c->room, c->s->username);
+    }
     c->s->on_notify = NULL;   /* pipe stays open — owned by the session */
     free (c);
 }

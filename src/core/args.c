@@ -20,7 +20,8 @@ static const char doc[] =
     "Start as root with --user=nobody to bind port 23 and drop privileges.";
 
 static const struct argp_option options[] = {
-    { "port",       'p', "PORT", 0, "Listen port (default: 23)",                    0 },
+    { "port",       'p', "PORT", 0, "Telnet listen port (default: 23)",             0 },
+    { "http-port",  'H', "PORT", 0, "HTTP API port, 0 disables (default: 8080)",    0 },
     { "max-conn",   'n', "N",    0, "Max concurrent connections (default: 2000)",   0 },
     { "stack",      's', "KB",   0, "Per-connection stack size in KB (default: 256)", 0 },
     { "user",       'u', "USER", 0, "Drop privileges to USER after bind",           0 },
@@ -41,6 +42,15 @@ parse_opt (int key, char *arg, struct argp_state *state)
             return ARGP_ERR_UNKNOWN;
         }
         a->port = (uint16_t) v;
+        break;
+    }
+    case 'H': {
+        long v = strtol (arg, NULL, 10);
+        if (v < 0 || v > 65535) {
+            argp_error (state, "http-port must be 0-65535, got: %s", arg);
+            return ARGP_ERR_UNKNOWN;
+        }
+        a->http_port = (uint16_t) v;
         break;
     }
     case 'n': {
@@ -85,6 +95,7 @@ args_parse (int argc, char **argv, server_args_t *out)
     assert (out != NULL);
 
     out->port       = 23;
+    out->http_port  = 8080;
     out->max_conn   = 2000;
     out->stack_kb   = 256;
     out->drop_user  = NULL;

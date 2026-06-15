@@ -13,6 +13,7 @@
 /** Parsed command-line options with their defaults. */
 typedef struct {
     uint16_t    port;        /**< -p / --port       default: 23    */
+    uint16_t    http_port;   /**< -H / --http-port  default: 8080 (0 = disabled) */
     uint32_t    max_conn;    /**< -n / --max-conn   default: 2000  */
     uint32_t    stack_kb;    /**< -s / --stack      default: 256   */
     const char *drop_user;   /**< -u / --user       default: NULL (no drop) */

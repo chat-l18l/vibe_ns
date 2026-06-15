@@ -17,6 +17,7 @@ typedef struct {
     void          *arg;
 } conn_wrap_t;
 
+/** @brief pthread trampoline: run the work fn, then return the slot. */
 static void *
 thread_entry (void *raw)
 {
