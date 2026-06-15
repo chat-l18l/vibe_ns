@@ -113,6 +113,7 @@ status_reason (int status)
     case 400: return "Bad Request";
     case 404: return "Not Found";
     case 405: return "Method Not Allowed";
+    case 408: return "Request Timeout";
     case 413: return "Payload Too Large";
     case 500: return "Internal Server Error";
     default:  return "OK";
@@ -273,11 +274,21 @@ read_request (http_conn_t *c, char *buf, size_t bufsz, http_request_t *req)
     for (;;) {
         struct pollfd pf = { .fd = c->sockfd, .events = POLLIN };
         int pr = poll (&pf, 1, HTTP_READ_TIMEOUT);
-        if (pr <= 0)
-            return -1;                            /* timeout or error */
+        if (pr < 0) {
+            if (errno == EINTR) continue;         /* interrupted — retry */
+            return -1;
+        }
+        if (pr == 0) {                            /* client went quiet */
+            http_respond_text (c, 408, "Request Timeout\n");
+            return -1;
+        }
 
         ssize_t n = recv (c->sockfd, buf + have, bufsz - have, 0);
-        if (n <= 0)
+        if (n < 0) {
+            if (errno == EINTR) continue;         /* interrupted — retry */
+            return -1;
+        }
+        if (n == 0)                               /* peer closed */
             return -1;
         have += (size_t) n;
 
@@ -293,6 +304,30 @@ read_request (http_conn_t *c, char *buf, size_t bufsz, http_request_t *req)
             return -1;
         }
     }
+}
+
+/**
+ * @brief Close a socket without discarding the response we just sent.
+ *
+ * If the client still has unread request bytes queued (e.g. we rejected an
+ * oversized request before reading it all), a plain close() makes the
+ * kernel send RST, which can drop the in-flight response. Sending our FIN
+ * first (shutdown) and draining the remainder makes it a clean close so the
+ * client reliably receives the response. Bounded so a stuck peer can't hang
+ * the thread.
+ */
+static void
+close_graceful (int fd)
+{
+    shutdown (fd, SHUT_WR);
+    char tmp[512];
+    for (int i = 0; i < 20; i++) {                /* ~200ms budget */
+        struct pollfd pf = { .fd = fd, .events = POLLIN };
+        if (poll (&pf, 1, 10) <= 0) break;
+        ssize_t n = recv (fd, tmp, sizeof (tmp), 0);
+        if (n <= 0) break;                        /* EOF or error → done */
+    }
+    close (fd);
 }
 
 /** @brief Connection body: read one request, dispatch it, then close. */
@@ -316,7 +351,7 @@ http_run_session (void *session)
     session_unregister (c);
     if (c->notify_rfd >= 0) close (c->notify_rfd);
     if (c->notify_wfd >= 0) close (c->notify_wfd);
-    close (c->sockfd);
+    close_graceful (c->sockfd);
     free (c);
 }
 
